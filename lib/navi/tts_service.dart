@@ -6,6 +6,7 @@ class TtsService {
   TtsService() {
     _tts.setLanguage("en-IN");
     _tts.setSpeechRate(0.5);
+    _tts.awaitSpeakCompletion(true);
   }
 
   /// Speaks the given text aloud

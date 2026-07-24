@@ -25,8 +25,8 @@ class NavigationController {
         destinationKeyword,
       );
 
-      final destLat = place['geometry']['location']['lat'] as double;
-      final destLng = place['geometry']['location']['lng'] as double;
+      final destLat = place['lat'] as double;
+      final destLng = place['lng'] as double;
       final placeName = place['name'] as String;
 
       _steps = await _directionsService.getWalkingSteps(
@@ -81,5 +81,36 @@ class NavigationController {
   void stopNavigation() {
     _positionStream?.cancel();
     _positionStream = null;
+  }
+
+  /// Speaks all navigation steps once, useful for demos/testing without physically walking.
+  Future<void> previewRoute(String destinationKeyword) async {
+    try {
+      final currentPosition = await _locationService.getCurrentLocation();
+
+      final place = await _directionsService.findNearestPlace(
+        currentPosition.latitude,
+        currentPosition.longitude,
+        destinationKeyword,
+      );
+
+      final destLat = place['lat'] as double;
+      final destLng = place['lng'] as double;
+      final placeName = place['name'] as String;
+
+      final steps = await _directionsService.getWalkingSteps(
+        currentPosition.latitude,
+        currentPosition.longitude,
+        destLat,
+        destLng,
+      );
+
+      await _ttsService.speak("Route to $placeName has ${steps.length} steps.");
+      for (final step in steps) {
+        await _ttsService.speak(step['instruction'] as String);
+      }
+    } catch (e) {
+      await _ttsService.speak("Sorry, could not preview the route.");
+    }
   }
 }
