@@ -2,6 +2,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_ui.dart';
+import '../assistant/models/intent_type.dart';
+import '../assistant/services/companion_mode_controller.dart';
+import '../assistant/services/speech_service.dart';
+import '../assistant/services/tts_service.dart';
+import '../assistant/services/vision_mate_brain.dart';
 
 class SplashScreen extends StatelessWidget {
   const SplashScreen({super.key});
@@ -28,7 +33,7 @@ class PermissionsScreen extends StatelessWidget {
     const _Permission(icon: Icons.mic_rounded, title: 'Microphone', body: 'Hear your voice commands', granted: true), const _Permission(icon: Icons.camera_alt_rounded, title: 'Camera', body: 'Read labels and describe scenes'), const _Permission(icon: Icons.location_on_rounded, title: 'Location', body: 'Guide you safely, wherever you go'), const _Permission(icon: Icons.notifications_rounded, title: 'Notifications', body: 'Keep safety alerts visible'), const _Permission(icon: Icons.vibration_rounded, title: 'Motion', body: 'Recognize falls and sudden movements'), const Spacer(), PrimaryButton(label: 'Allow Microphone', icon: Icons.check_rounded, onPressed: () => Navigator.pushNamed(context, '/sign-in')), const SizedBox(height: 16),
   ]));
 }
-class _Permission extends StatelessWidget { final IconData icon; final String title, body; final bool granted; const _Permission({required this.icon, required this.title, required this.body, this.granted = false}); @override Widget build(BuildContext c) => Padding(padding: const EdgeInsets.only(bottom: 10), child: AppCard(child: ListTile(leading: CircleAvatar(backgroundColor: AppColors.cyan.withOpacity(.15), child: Icon(icon, color: AppColors.cyan)), title: Text(title), subtitle: Text(body), trailing: Icon(granted ? Icons.check_circle : Icons.chevron_right, color: granted ? AppColors.cyan : Colors.white70)))); }
+class _Permission extends StatelessWidget { final IconData icon; final String title, body; final bool granted; const _Permission({required this.icon, required this.title, required this.body, this.granted = false}); @override Widget build(BuildContext c) => Padding(padding: const EdgeInsets.only(bottom: 10), child: AppCard(child: ListTile(leading: CircleAvatar(backgroundColor: AppColors.cyan.withValues(alpha: .15), child: Icon(icon, color: AppColors.cyan)), title: Text(title), subtitle: Text(body), trailing: Icon(granted ? Icons.check_circle : Icons.chevron_right, color: granted ? AppColors.cyan : Colors.white70)))); }
 
 class SignInScreen extends StatelessWidget {
   const SignInScreen({super.key});
@@ -38,8 +43,401 @@ class SignInScreen extends StatelessWidget {
 }
 class _Input extends StatelessWidget { final IconData icon; final String hint; final bool obscure; const _Input({required this.icon, required this.hint, this.obscure = false}); @override Widget build(BuildContext c) => TextField(obscureText: obscure, decoration: InputDecoration(prefixIcon: Icon(icon, color: AppColors.cyan), hintText: hint, hintStyle: const TextStyle(color: AppColors.muted), filled: true, fillColor: AppColors.surface, border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.outline)), enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.outline)))); }
 
-class SpeakScreen extends StatefulWidget { const SpeakScreen({super.key}); @override State<SpeakScreen> createState() => _SpeakScreenState(); }
-class _SpeakScreenState extends State<SpeakScreen> with SingleTickerProviderStateMixin { late final AnimationController controller; @override void initState(){super.initState(); controller=AnimationController(vsync:this,duration:const Duration(milliseconds:850));} @override void dispose(){controller.dispose();super.dispose();} @override Widget build(BuildContext c)=>AppPage(padded:false,child: Column(children:[Expanded(child:Padding(padding:const EdgeInsets.symmetric(horizontal:20),child:Column(children:[const SizedBox(height:16), const Row(children:[Text('Good morning,',style:TextStyle(color:AppColors.muted)),Spacer(),Icon(Icons.notifications_none_rounded)]),const Align(alignment:Alignment.centerLeft,child:Text('Anika Sharma',style:TextStyle(fontSize:24,fontWeight:FontWeight.w900))),const Spacer(), ScaleTransition(scale:Tween(begin:1.0,end:1.08).animate(CurvedAnimation(parent:controller,curve:Curves.easeInOut)),child:GestureDetector(onLongPressStart:(_){controller.repeat(reverse:true);},onLongPressEnd:(_){controller.stop();Navigator.pushNamed(c,'/listening');},child:const GlowOrb(icon:Icons.mic_rounded,size:172,active:true))),const SizedBox(height:18),const Text('Hold to Speak',style:TextStyle(fontWeight:FontWeight.w800,color:AppColors.cyan)),const SizedBox(height:9),const Text('Tap and hold the microphone to talk',style:TextStyle(color:AppColors.muted,fontSize:12)),const SizedBox(height:12),const Waveform(),const Spacer(),GridView.count(shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),crossAxisCount:2,childAspectRatio:1.65,mainAxisSpacing:12,crossAxisSpacing:12,children:const[ModeTile(icon:Icons.navigation_rounded,title:'Navigate',subtitle:'Where should we go?',route:'/navigate'),ModeTile(icon:Icons.menu_book_rounded,title:'Read',subtitle:'Read text around you',route:'/read'),ModeTile(icon:Icons.directions_bus_rounded,title:'Travel',subtitle:'Plan your journey',route:'/travel'),ModeTile(icon:Icons.sos_rounded,title:'Help',subtitle:'Get help fast',route:'/help',danger:true)]),const SizedBox(height:12)]))),const PhoneBottomNav(index:0)])); }
+class SpeakScreen extends StatefulWidget {
+  const SpeakScreen({super.key});
 
-class ListeningScreen extends StatelessWidget { const ListeningScreen({super.key}); @override Widget build(BuildContext c)=>AppPage(child:Column(children:[const SizedBox(height:35),const Text('LISTENING...',style:TextStyle(color:AppColors.cyan,fontSize:11,fontWeight:FontWeight.bold,letterSpacing:1.4)),const Spacer(),const GlowOrb(icon:Icons.mic_rounded,size:150,active:true),const SizedBox(height:28),const Text("I'm listening...",style:TextStyle(fontWeight:FontWeight.w900,fontSize:26)),const SizedBox(height:10),const Waveform(width:210),const SizedBox(height:13),const Text('Tell me what you need help with.',style:TextStyle(color:AppColors.muted)),const Spacer(),SizedBox(width:double.infinity,height:51,child:OutlinedButton.icon(style:OutlinedButton.styleFrom(side:const BorderSide(color:AppColors.outline)),onPressed:()=>Navigator.pop(c),icon:const Icon(Icons.close),label:const Text('Cancel'))),const SizedBox(height:16)])); }
-class ProcessingScreen extends StatelessWidget { const ProcessingScreen({super.key}); @override Widget build(BuildContext c)=>AppPage(child:const Center(child:Column(mainAxisSize:MainAxisSize.min,children:[GlowOrb(icon:Icons.auto_awesome_rounded,size:155,active:true),SizedBox(height:28),Text('Understanding your request...',style:TextStyle(fontSize:22,fontWeight:FontWeight.w900))]))); }
+  @override
+  State<SpeakScreen> createState() => _SpeakScreenState();
+}
+
+class _SpeakScreenState extends State<SpeakScreen> {
+  static bool _hasShownDisclosure = false;
+
+  final CompanionModeController _companionMode =
+      CompanionModeController.instance;
+  CompanionOrbState _orbState = CompanionOrbState.off;
+  bool _showDisclosure = false;
+
+  bool get _companionModeOn => _orbState != CompanionOrbState.off;
+
+  String get _companionStatus => switch (_orbState) {
+        CompanionOrbState.off => 'Companion mode off',
+        CompanionOrbState.listening => 'Listening for you',
+        CompanionOrbState.processing => 'Thinking about that...',
+        CompanionOrbState.speaking => 'Speaking to you',
+      };
+
+  @override
+  void dispose() {
+    super.dispose();
+  }
+
+  void _toggleCompanionMode() {
+    if (_companionModeOn) {
+      _companionMode.disable();
+      setState(() {
+        _orbState = CompanionOrbState.off;
+        _showDisclosure = false;
+      });
+      return;
+    }
+
+    _companionMode.enable();
+    setState(() {
+      _orbState = _companionMode.state;
+      _showDisclosure = !_hasShownDisclosure;
+      _hasShownDisclosure = true;
+    });
+    Navigator.pushNamed(context, '/listening');
+  }
+
+  @override
+  Widget build(BuildContext context) => AppPage(
+        padded: false,
+        child: Column(children: [
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(children: [
+                const SizedBox(height: 16),
+                const Row(children: [
+                  Text(
+                    'Good morning,',
+                    style: TextStyle(color: AppColors.muted),
+                  ),
+                  Spacer(),
+                  Icon(Icons.notifications_none_rounded),
+                ]),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Anika Sharma',
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
+                  ),
+                ),
+                const Spacer(),
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _toggleCompanionMode,
+                  child: GlowOrb(
+                    icon: Icons.mic_rounded,
+                    size: 172,
+                    state: _orbState,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  _companionStatus,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.cyan,
+                  ),
+                ),
+                const SizedBox(height: 7),
+                Text(
+                  _companionModeOn
+                      ? 'Tap the orb any time to turn Companion Mode off.'
+                      : 'Tap the orb to turn Companion Mode on.',
+                  style: const TextStyle(color: AppColors.muted, fontSize: 12),
+                ),
+                if (_showDisclosure) ...[
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Companion Mode keeps me listening between replies. It uses more battery, and I cannot hear you while I’m talking or thinking.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: AppColors.muted, fontSize: 11),
+                  ),
+                ] else
+                  const SizedBox(height: 22),
+                const Spacer(),
+                GridView.count(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisCount: 2,
+                  childAspectRatio: 1.65,
+                  mainAxisSpacing: 12,
+                  crossAxisSpacing: 12,
+                  children: const [
+                    ModeTile(
+                      icon: Icons.navigation_rounded,
+                      title: 'Navigate',
+                      subtitle: 'Where should we go?',
+                      route: '/navigate',
+                    ),
+                    ModeTile(
+                      icon: Icons.menu_book_rounded,
+                      title: 'Read',
+                      subtitle: 'Read text around you',
+                      route: '/read',
+                    ),
+                    ModeTile(
+                      icon: Icons.directions_bus_rounded,
+                      title: 'Travel',
+                      subtitle: 'Plan your journey',
+                      route: '/travel',
+                    ),
+                    ModeTile(
+                      icon: Icons.sos_rounded,
+                      title: 'Help',
+                      subtitle: 'Get help fast',
+                      route: '/help',
+                      danger: true,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+              ]),
+            ),
+          ),
+          const PhoneBottomNav(index: 0),
+        ]),
+      );
+}
+
+class ListeningScreen extends StatefulWidget {
+  const ListeningScreen({super.key});
+
+  @override
+  State<ListeningScreen> createState() => _ListeningScreenState();
+}
+
+class _ListeningScreenState extends State<ListeningScreen> {
+  final SpeechService _speechService = SpeechService();
+  final CompanionModeController _companionMode =
+      CompanionModeController.instance;
+  String _partialTranscript = '';
+  String? _errorMessage;
+  bool _hasNavigated = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _startListening());
+  }
+
+  Future<void> _startListening() async {
+    if (!_companionMode.isEnabled) {
+      return;
+    }
+    _companionMode.setListening();
+    try {
+      await _speechService.startListening(
+        _onFinalTranscript,
+        onPartialResult: (text) {
+          if (mounted) {
+            setState(() => _partialTranscript = text);
+          }
+        },
+      );
+    } on StateError {
+      if (mounted) {
+        setState(() {
+          _errorMessage =
+              'Microphone access is needed before VisionMate can listen.';
+        });
+      }
+    }
+  }
+
+  Future<void> _onFinalTranscript(String transcript) async {
+    if (_hasNavigated) {
+      return;
+    }
+
+    if (transcript.trim().isEmpty) {
+      _restartListening();
+      return;
+    }
+
+    _hasNavigated = true;
+    _companionMode.setProcessing();
+    await _speechService.stopListening();
+    if (mounted) {
+      Navigator.pushReplacementNamed(
+        context,
+        '/processing',
+        arguments: transcript.trim(),
+      );
+    }
+  }
+
+  void _restartListening() {
+    if (!_companionMode.isEnabled || _hasNavigated) {
+      return;
+    }
+    Future<void>.delayed(const Duration(milliseconds: 350), () {
+      if (mounted && _companionMode.isEnabled && !_hasNavigated) {
+        _startListening();
+      }
+    });
+  }
+
+  Future<void> _cancel() async {
+    _companionMode.disable();
+    await _speechService.stopListening();
+    if (mounted) {
+      Navigator.pop(context);
+    }
+  }
+
+  @override
+  void dispose() {
+    unawaited(_speechService.stopListening());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AppPage(
+        child: Column(children: [
+          const SizedBox(height: 35),
+          const Text(
+            'LISTENING...',
+            style: TextStyle(
+              color: AppColors.cyan,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.4,
+            ),
+          ),
+          const Spacer(),
+          GestureDetector(
+            onTap: _cancel,
+            child: GlowOrb(
+              icon: Icons.mic_rounded,
+              size: 150,
+              state: _companionMode.state,
+            ),
+          ),
+          const SizedBox(height: 28),
+          const Text(
+            "I'm listening...",
+            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 26),
+          ),
+          const SizedBox(height: 10),
+          const Waveform(width: 210),
+          const SizedBox(height: 13),
+          Text(
+            _errorMessage ??
+                (_partialTranscript.isEmpty
+                    ? 'Tell me what you need help with.'
+                    : _partialTranscript),
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: AppColors.muted),
+          ),
+          const Spacer(),
+          SizedBox(
+            width: double.infinity,
+            height: 51,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: AppColors.outline),
+              ),
+              onPressed: null,
+              icon: const Icon(Icons.close),
+              label: const Text('Tap the orb to turn off'),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ]),
+      );
+}
+class ProcessingScreen extends StatefulWidget {
+  const ProcessingScreen({super.key});
+
+  @override
+  State<ProcessingScreen> createState() => _ProcessingScreenState();
+}
+
+class _ProcessingScreenState extends State<ProcessingScreen> {
+  final VisionMateBrain _brain = VisionMateBrain();
+  final TtsService _ttsService = TtsService();
+  final CompanionModeController _companionMode =
+      CompanionModeController.instance;
+  bool _hasStarted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _processRequest());
+  }
+
+  Future<void> _processRequest() async {
+    if (_hasStarted) {
+      return;
+    }
+    _hasStarted = true;
+
+    final transcribedText = ModalRoute.of(context)?.settings.arguments as String?;
+    if (transcribedText == null || transcribedText.trim().isEmpty) {
+      if (mounted) {
+        Navigator.pop(context);
+      }
+      return;
+    }
+
+    final response = await _brain.classify(transcribedText);
+    _companionMode.setSpeaking();
+    try {
+      await _ttsService.speak(response.reply);
+    } catch (_) {
+      // Navigation remains available even if native text-to-speech is unavailable.
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    if (_companionMode.isEnabled &&
+        (response.intent == IntentType.chat ||
+            response.intent == IntentType.unknown)) {
+      Navigator.pushReplacementNamed(context, '/listening');
+      return;
+    }
+
+    if (response.confidence < 0.5) {
+      Navigator.pop(context);
+      return;
+    }
+
+    switch (response.intent) {
+      case IntentType.navigate:
+        Navigator.pushReplacementNamed(
+          context,
+          '/navigate',
+          arguments: response.destination,
+        );
+        return;
+      case IntentType.travel:
+        Navigator.pushReplacementNamed(
+          context,
+          '/travel',
+          arguments: response.destination,
+        );
+        return;
+      case IntentType.read:
+        Navigator.pushReplacementNamed(context, '/read');
+        return;
+      case IntentType.help:
+        Navigator.pushReplacementNamed(context, '/help');
+        return;
+      case IntentType.chat:
+      case IntentType.unknown:
+        Navigator.pop(context);
+        return;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AppPage(
+        child: const Center(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            GlowOrb(icon: Icons.auto_awesome_rounded, size: 155, active: true),
+            SizedBox(height: 28),
+            Text(
+              'Understanding your request...',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+            ),
+          ]),
+        ),
+      );
+}

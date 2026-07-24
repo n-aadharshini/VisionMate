@@ -6,7 +6,6 @@ import 'core/theme/app_theme.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: ".env");
-  print('Groq key loaded: ${dotenv.env['GROQ_API_KEY']?.substring(0, 8)}...');
   runApp(const VisionMateApp());
 }
 

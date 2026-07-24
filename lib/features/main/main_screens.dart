@@ -10,12 +10,87 @@ class ReadScreen extends StatelessWidget { const ReadScreen({super.key}); @overr
 class _RoundAction extends StatelessWidget { final IconData icon; final String label; const _RoundAction(this.icon,this.label); @override Widget build(BuildContext c)=>Expanded(child:Column(children:[CircleAvatar(backgroundColor:AppColors.surfaceLight,child:Icon(icon,color:AppColors.cyan)),const SizedBox(height:4),Text(label,style:const TextStyle(fontSize:10,color:AppColors.muted))])); }
 
 class NavigateScreen extends StatelessWidget { const NavigateScreen({super.key}); @override Widget build(BuildContext c)=>AppPage(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const SizedBox(height:8),const Row(children:[AppBackButton(),SizedBox(width:6),Text('Travel Mode',style:TextStyle(fontWeight:FontWeight.w800)),Spacer(),Icon(Icons.more_vert)]),const SizedBox(height:10),const Text('Where are you going?',style:TextStyle(fontSize:24,fontWeight:FontWeight.w900)),const SizedBox(height:15),const _Destination(icon:Icons.home_rounded,title:'Home',sub:'Route 43'),const _Destination(icon:Icons.flag_rounded,title:'Benson Ave',sub:'Route 2'),const _Destination(icon:Icons.business_rounded,title:'Office',sub:'Route 1'),const SizedBox(height:10),Row(children:const[_Metric('4 min','Walking'),_Metric('16 min','Bus'),_Metric('12','Stops')]),const SizedBox(height:13),const AppCard(child:ListTile(leading:Icon(Icons.verified_user_rounded,color:AppColors.cyan),title:Text('SAFETY ALERTS'),subtitle:Text('Bus 43 is on time • Walking trail clear'))),const Spacer(),Row(children:[Expanded(child:OutlinedButton.icon(style:OutlinedButton.styleFrom(minimumSize:const Size.fromHeight(50),side:const BorderSide(color:AppColors.outline)),onPressed:(){},icon:const Icon(Icons.notifications_none),label:const Text('Remind me'))),const SizedBox(width:10),Expanded(child:PrimaryButton(label:'Voice',icon:Icons.mic_rounded,onPressed:()=>Navigator.pushNamed(c,'/listening')))]),const SizedBox(height:16)])); }
-class _Destination extends StatelessWidget {final IconData icon;final String title,sub;const _Destination({required this.icon,required this.title,required this.sub});@override Widget build(BuildContext c)=>Padding(padding:const EdgeInsets.only(bottom:9),child:AppCard(child:ListTile(leading:CircleAvatar(backgroundColor:AppColors.blue.withOpacity(.18),child:Icon(icon,color:AppColors.cyan)),title:Text(title),subtitle:Text(sub),trailing:const Icon(Icons.chevron_right))));}
+class _Destination extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String sub;
+
+  const _Destination({
+    required this.icon,
+    required this.title,
+    required this.sub,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final routeDestination =
+        ModalRoute.of(context)?.settings.arguments as String?;
+    final hasVoiceDestination =
+        routeDestination != null && routeDestination.trim().isNotEmpty;
+    final shouldPrioritizeVoiceDestination =
+        hasVoiceDestination && title == 'Home';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: AppCard(
+        child: ListTile(
+          leading: CircleAvatar(
+            backgroundColor: AppColors.blue.withValues(alpha: .18),
+            child: Icon(
+              shouldPrioritizeVoiceDestination ? Icons.mic_rounded : icon,
+              color: AppColors.cyan,
+            ),
+          ),
+          title: Text(
+            shouldPrioritizeVoiceDestination ? routeDestination : title,
+          ),
+          subtitle: Text(
+            shouldPrioritizeVoiceDestination ? 'Voice destination' : sub,
+          ),
+          trailing: const Icon(Icons.chevron_right),
+        ),
+      ),
+    );
+  }
+}
 class _Metric extends StatelessWidget {final String value,label;const _Metric(this.value,this.label);@override Widget build(BuildContext c)=>Expanded(child:Padding(padding:const EdgeInsets.symmetric(horizontal:3),child:AppCard(padding:const EdgeInsets.symmetric(vertical:10),child:Column(children:[Text(value,style:const TextStyle(fontWeight:FontWeight.w900,color:AppColors.cyan)),Text(label,style:const TextStyle(fontSize:10,color:AppColors.muted))]))));}
 
 class IndoorNavigationScreen extends StatelessWidget { const IndoorNavigationScreen({super.key}); @override Widget build(BuildContext c)=>AppPage(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const SizedBox(height:8),const Row(children:[AppBackButton(),SizedBox(width:8),Text('Read Mode',style:TextStyle(fontWeight:FontWeight.w800)),Spacer(),Icon(Icons.flash_on_outlined)]),const SizedBox(height:10),const Text('Skyline Tower - Floor 2',style:TextStyle(fontSize:21,fontWeight:FontWeight.w900)),const SizedBox(height:18),Expanded(child:AppCard(child:Stack(alignment:Alignment.center,children:[Container(margin:const EdgeInsets.all(18),decoration:BoxDecoration(border:Border.all(color:AppColors.cyan),borderRadius:BorderRadius.circular(16)),),const GlowOrb(icon:Icons.navigation_rounded,size:58),const Positioned(bottom:25,child:Chip(label:const Text('You are here')))]))),const SizedBox(height:12),const AppCard(child:ListTile(leading:Icon(Icons.auto_awesome,color:AppColors.cyan),title:Text('DETECTED TEXT'),subtitle:Text('Platform 5, Gate 3 • Central Station'))),const SizedBox(height:12),PrimaryButton(label:'Begin navigation',icon:Icons.navigation_rounded,onPressed:()=>Navigator.pushNamed(c,'/arrived')),const SizedBox(height:16)])); }
 
-class TravelScreen extends StatelessWidget { const TravelScreen({super.key}); @override Widget build(BuildContext c)=>AppPage(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const SizedBox(height:8),const Row(children:[BackButton(),SizedBox(width:7),Text('Travel Mode',style:TextStyle(fontWeight:FontWeight.w800)),Spacer(),Icon(Icons.more_vert)]),const SizedBox(height:12),const Text('Where are you going?',style:TextStyle(fontSize:25,fontWeight:FontWeight.w900)),const SizedBox(height:16),const _Destination(icon:Icons.home,title:'Home',sub:'Route 43'),const _Destination(icon:Icons.flag,title:'Benson Ave',sub:'Route 2'),const _Destination(icon:Icons.business,title:'Office',sub:'Route 1'),const Spacer(),PrimaryButton(label:'Ask about travel',icon:Icons.mic_rounded,onPressed:()=>Navigator.pushNamed(c,'/listening')),const SizedBox(height:16)])); }
+class TravelScreen extends StatelessWidget {
+  const TravelScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return AppPage(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const SizedBox(height: 8),
+        const Row(children: [
+          AppBackButton(),
+          SizedBox(width: 7),
+          Text('Travel Mode', style: TextStyle(fontWeight: FontWeight.w800)),
+          Spacer(),
+          Icon(Icons.more_vert),
+        ]),
+        const SizedBox(height: 12),
+        const Text('Where are you going?',
+            style: TextStyle(fontSize: 25, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 16),
+        const _Destination(icon: Icons.home, title: 'Home', sub: 'Route 43'),
+        const _Destination(icon: Icons.flag, title: 'Benson Ave', sub: 'Route 2'),
+        const _Destination(
+            icon: Icons.business, title: 'Office', sub: 'Route 1'),
+        const Spacer(),
+        PrimaryButton(
+          label: 'Ask about travel',
+          icon: Icons.mic_rounded,
+          onPressed: () => Navigator.pushNamed(context, '/listening'),
+        ),
+        const SizedBox(height: 16),
+      ]),
+    );
+  }
+}
 
 class HelpScreen extends StatelessWidget { const HelpScreen({super.key}); @override Widget build(BuildContext c)=>AppPage(child:Column(children:[const SizedBox(height:24),const Text('HELP & SAFETY',style:TextStyle(color:AppColors.danger,fontSize:11,fontWeight:FontWeight.bold,letterSpacing:1.5)),const SizedBox(height:10),const Text('You are not alone.',style:TextStyle(fontSize:27,fontWeight:FontWeight.w900)),const Spacer(),const GlowOrb(icon:Icons.health_and_safety_rounded,size:154,active:true),const SizedBox(height:22),const Text('Need immediate help?',style:TextStyle(fontSize:20,fontWeight:FontWeight.w800)),const Text('Your emergency contacts will be notified.',style:TextStyle(color:AppColors.muted)),const Spacer(),PrimaryButton(label:'Hold for SOS',icon:Icons.sos_rounded,onPressed:()=>Navigator.pushNamed(c,'/sos')),const SizedBox(height:12),const AppCard(child:ListTile(leading:Icon(Icons.contact_phone,color:AppColors.cyan),title:Text('Emergency contacts'),subtitle:Text('Mom, Dad, Neighbour'),trailing:Icon(Icons.chevron_right))),const SizedBox(height:16)])); }
 
@@ -83,13 +158,13 @@ class _SosScreenState extends State<SosScreen> {
 }
 
 class HistoryScreen extends StatelessWidget { const HistoryScreen({super.key}); @override Widget build(BuildContext c)=>AppPage(padded:false,child:Column(children:[Expanded(child:Padding(padding:const EdgeInsets.all(20),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('Recent activity',style:TextStyle(fontSize:26,fontWeight:FontWeight.w900)),const SizedBox(height:8),const Wrap(spacing:8,children:[Chip(label:Text('All')),Chip(label:Text('Read Mode')),Chip(label:Text('Travel'))]),const SizedBox(height:10),const Expanded(child:SingleChildScrollView(child:Column(children:[_Activity(Icons.menu_book,'Read: Medicine label','Today · 10:42 AM'),_Activity(Icons.navigation,'Navigation: Home → Library','Today · 9:18 AM'),_Activity(Icons.mic,'Voice command','Yesterday · 7:20 PM'),_Activity(Icons.sos,'SOS test completed','Yesterday · 4:15 PM',danger:true),_Activity(Icons.directions_bus,'Travel: Bus 21G','Monday · 9:20 AM')])))]))),const PhoneBottomNav(index:1)])); }
-class _Activity extends StatelessWidget {final IconData icon;final String title,time;final bool danger;const _Activity(this.icon,this.title,this.time,{this.danger=false});@override Widget build(BuildContext c)=>Padding(padding:const EdgeInsets.only(bottom:10),child:AppCard(child:ListTile(leading:CircleAvatar(backgroundColor:(danger?AppColors.danger:AppColors.cyan).withOpacity(.16),child:Icon(icon,color:danger?AppColors.danger:AppColors.cyan)),title:Text(title),subtitle:Text(time),trailing:const Icon(Icons.more_horiz,color:AppColors.cyan))));}
+class _Activity extends StatelessWidget {final IconData icon;final String title,time;final bool danger;const _Activity(this.icon,this.title,this.time,{this.danger=false});@override Widget build(BuildContext c)=>Padding(padding:const EdgeInsets.only(bottom:10),child:AppCard(child:ListTile(leading:CircleAvatar(backgroundColor:(danger?AppColors.danger:AppColors.cyan).withValues(alpha:.16),child:Icon(icon,color:danger?AppColors.danger:AppColors.cyan)),title:Text(title),subtitle:Text(time),trailing:const Icon(Icons.more_horiz,color:AppColors.cyan))));}
 
 class ProfileScreen extends StatelessWidget { const ProfileScreen({super.key}); @override Widget build(BuildContext c)=>AppPage(padded:false,child:Column(children:[Expanded(child:Padding(padding:const EdgeInsets.all(20),child:Column(children:[Align(alignment:Alignment.centerRight,child:IconButton(onPressed:()=>Navigator.pushNamed(c,'/settings'),icon:const Icon(Icons.settings_outlined))),const GlowOrb(icon:Icons.person_rounded,size:108),const SizedBox(height:14),const Text('Anika Sharma',style:TextStyle(fontSize:24,fontWeight:FontWeight.w900)),const Text('anika.sharma@email.com',style:TextStyle(color:AppColors.muted)),const SizedBox(height:22),const _ProfileRow(Icons.language,'Preferred language','English'),const _ProfileRow(Icons.contact_phone,'Emergency contacts','2 contacts'),const _ProfileRow(Icons.record_voice_over,'Voice settings','Calm voice'),const _ProfileRow(Icons.accessibility_new,'Accessibility','Haptics and text size'),const _ProfileRow(Icons.shield_outlined,'VisionMate Plus','Your plan'),const Spacer(),const Text('Version 1.0.0',style:TextStyle(fontSize:11,color:AppColors.muted))]))),const PhoneBottomNav(index:2)])); }
 class _ProfileRow extends StatelessWidget {final IconData icon;final String title,sub;const _ProfileRow(this.icon,this.title,this.sub);@override Widget build(BuildContext c)=>Padding(padding:const EdgeInsets.only(bottom:10),child:AppCard(child:ListTile(leading:Icon(icon,color:AppColors.cyan),title:Text(title),subtitle:Text(sub),trailing:const Icon(Icons.chevron_right))));}
 
 class SettingsScreen extends StatelessWidget { const SettingsScreen({super.key}); @override Widget build(BuildContext c)=>AppPage(padded:false,child:Column(children:[Expanded(child:Padding(padding:const EdgeInsets.all(20),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('Settings',style:TextStyle(fontSize:27,fontWeight:FontWeight.w900)),const SizedBox(height:18),const Text('Preferences',style:TextStyle(color:AppColors.cyan,fontWeight:FontWeight.w800)),const SizedBox(height:9),const _Setting('Language','English',false),const _Setting('Voice speed','Normal',false),const _Setting('Voice guidance','On',true),const _Setting('Haptic feedback','On',true),const _Setting('Offline mode','Use saved assistance',false),const SizedBox(height:15),const Text('About VisionMate',style:TextStyle(color:AppColors.cyan,fontWeight:FontWeight.w800)),const SizedBox(height:9),AppCard(child:ListTile(onTap:()=>Navigator.pushNamed(c,'/offline'),leading:const Icon(Icons.cloud_off_outlined,color:AppColors.cyan),title:const Text('Preview offline state'),trailing:const Icon(Icons.chevron_right))),const Spacer(),SizedBox(width:double.infinity,height:49,child:OutlinedButton.icon(style:OutlinedButton.styleFrom(foregroundColor:AppColors.danger,side:const BorderSide(color:Color(0xFF713345))),onPressed:()=>Navigator.pushNamedAndRemoveUntil(c,'/',(_)=>false),icon:const Icon(Icons.logout),label:const Text('Log out')))]))),const PhoneBottomNav(index:3)])); }
-class _Setting extends StatelessWidget {final String title,sub;final bool on;const _Setting(this.title,this.sub,this.on);@override Widget build(BuildContext c)=>AppCard(child:SwitchListTile(value:on,onChanged:(_){},activeColor:AppColors.cyan,title:Text(title),subtitle:Text(sub)));}
+class _Setting extends StatelessWidget {final String title,sub;final bool on;const _Setting(this.title,this.sub,this.on);@override Widget build(BuildContext c)=>AppCard(child:SwitchListTile(value:on,onChanged:(_){},activeThumbColor:AppColors.cyan,title:Text(title),subtitle:Text(sub)));}
 
 class NotificationsScreen extends StatelessWidget { const NotificationsScreen({super.key}); @override Widget build(BuildContext c)=>AppPage(padded:false,child:Column(children:[Expanded(child:Padding(padding:const EdgeInsets.all(20),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[const Text('Notifications',style:TextStyle(fontSize:26,fontWeight:FontWeight.w900)),const Spacer(),TextButton(onPressed:(){},child:const Text('Mark all read'))]),const SizedBox(height:8),const _Activity(Icons.directions_bus,'Bus 42 arriving','In 4 minutes'),const _Activity(Icons.sos,'Battery low','Consider charging your phone',danger:true),const _Activity(Icons.verified,'SOS test successful','All contacts notified'),const _Activity(Icons.menu_book,'Read completed','Saved to History')]))),const PhoneBottomNav(index:0)])); }
 
