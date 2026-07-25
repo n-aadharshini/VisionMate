@@ -44,3 +44,10 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 .env
+
+# Android generated files
+android/build/
+android/.gradle/
+
+# Reports
+*.html
