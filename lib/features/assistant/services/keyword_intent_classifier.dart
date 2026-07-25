@@ -88,7 +88,8 @@ class KeywordIntentClassifier {
     return const VisionMateResponse(
       intent: IntentType.unknown,
       destination: null,
-      reply: 'I’m sorry, I didn’t quite catch that. Please try saying it again.',
+      reply:
+          'I’m sorry, I didn’t quite catch that. Please try saying it again.',
       confidence: 0.3,
       source: 'keyword',
     );
