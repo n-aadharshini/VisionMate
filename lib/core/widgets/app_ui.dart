@@ -30,169 +30,21 @@ class AppPage extends StatelessWidget {
       );
 }
 
-enum CompanionOrbState { off, listening, processing, speaking }
-
-class GlowOrb extends StatefulWidget {
+class GlowOrb extends StatelessWidget {
   final IconData icon;
   final double size;
   final bool active;
-  final CompanionOrbState? state;
-
-  const GlowOrb({
-    super.key,
-    required this.icon,
-    this.size = 132,
-    this.active = false,
-    this.state,
-  });
-
+  const GlowOrb({super.key, required this.icon, this.size = 132, this.active = false});
   @override
-  State<GlowOrb> createState() => _GlowOrbState();
-}
-
-class _GlowOrbState extends State<GlowOrb>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-
-  CompanionOrbState get _state =>
-      widget.state ??
-      (widget.active ? CompanionOrbState.listening : CompanionOrbState.off);
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(vsync: this);
-    _configureAnimation();
-  }
-
-  @override
-  void didUpdateWidget(covariant GlowOrb oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.state != widget.state || oldWidget.active != widget.active) {
-      _configureAnimation();
-    }
-  }
-
-  void _configureAnimation() {
-    switch (_state) {
-      case CompanionOrbState.off:
-        _controller.stop();
-        _controller.value = 0;
-        return;
-      case CompanionOrbState.listening:
-        _controller.duration = const Duration(milliseconds: 1300);
-        _controller.repeat(reverse: true);
-        return;
-      case CompanionOrbState.processing:
-        _controller.duration = const Duration(milliseconds: 2600);
-        _controller.repeat();
-        return;
-      case CompanionOrbState.speaking:
-        _controller.duration = const Duration(milliseconds: 700);
-        _controller.repeat(reverse: true);
-        return;
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isOff = _state == CompanionOrbState.off;
-    final isListening = _state == CompanionOrbState.listening;
-    final isProcessing = _state == CompanionOrbState.processing;
-    final isSpeaking = _state == CompanionOrbState.speaking;
-
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) {
-        final scale = isListening || isSpeaking
-            ? 1 + (_controller.value * (isListening ? .07 : .045))
-            : 1.0;
-        final glowAlpha = isOff
-            ? .12
-            : isProcessing
-                ? .38
-                : .6;
-
-        return Transform.scale(
-          scale: scale,
-          child: SizedBox(
-            width: widget.size,
-            height: widget.size,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                if (isProcessing)
-                  Transform.rotate(
-                    angle: _controller.value * 6.28318,
-                    child: Container(
-                      width: widget.size,
-                      height: widget.size,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: AppColors.cyan,
-                          width: 2.5,
-                        ),
-                        borderRadius: BorderRadius.circular(widget.size),
-                      ),
-                    ),
-                  ),
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 280),
-                  width: widget.size * .84,
-                  height: widget.size * .84,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: isOff
-                        ? const RadialGradient(
-                            colors: [
-                              AppColors.surfaceLight,
-                              AppColors.surface,
-                              AppColors.background,
-                            ],
-                          )
-                        : const RadialGradient(
-                            colors: [
-                              Color(0xFF55E2FF),
-                              Color(0xFF2079EC),
-                              Color(0xFF12296A),
-                            ],
-                          ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppColors.cyan.withValues(alpha: glowAlpha),
-                        blurRadius: isOff ? 14 : 38,
-                        spreadRadius: isOff ? 0 : 5,
-                      ),
-                    ],
-                  ),
-                  child: Icon(
-                    isSpeaking ? Icons.graphic_eq_rounded : widget.icon,
-                    color: isOff ? AppColors.muted : Colors.white,
-                    size: widget.size * .3,
-                  ),
-                ),
-                if (isSpeaking)
-                  Positioned(
-                    bottom: widget.size * .02,
-                    child: Waveform(
-                      color: AppColors.cyan,
-                      width: widget.size * .52,
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
+  Widget build(BuildContext context) => AnimatedContainer(
+        duration: const Duration(milliseconds: 380), width: size, height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: const RadialGradient(colors: [Color(0xFF55E2FF), Color(0xFF2079EC), Color(0xFF12296A)]),
+          boxShadow: [BoxShadow(color: AppColors.cyan.withValues(alpha: active ? .64 : .26), blurRadius: active ? 42 : 22, spreadRadius: active ? 8 : 1)],
+        ),
+        child: Icon(icon, color: Colors.white, size: size * .3),
+      );
 }
 class AppCard extends StatelessWidget {
   final Widget child;

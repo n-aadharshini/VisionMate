@@ -28,10 +28,6 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>VisionMate needs the microphone to hear your voice commands.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>VisionMate uses the camera to read text and check visible landmarks during guided navigation.</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>VisionMate uses your location to guide you and check you are roughly on the right route.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>VisionMate uses speech recognition to understand your requests.</string>
 	<key>UIApplicationSceneManifest</key>

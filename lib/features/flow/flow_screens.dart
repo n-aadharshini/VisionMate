@@ -1,9 +1,9 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_ui.dart';
 import '../assistant/models/intent_type.dart';
-import '../assistant/services/companion_mode_controller.dart';
 import '../assistant/services/speech_service.dart';
 import '../assistant/services/tts_service.dart';
 import '../assistant/services/vision_mate_brain.dart';
@@ -51,43 +51,7 @@ class SpeakScreen extends StatefulWidget {
 }
 
 class _SpeakScreenState extends State<SpeakScreen> {
-  static bool _hasShownDisclosure = false;
-
-  final CompanionModeController _companionMode =
-      CompanionModeController.instance;
-  CompanionOrbState _orbState = CompanionOrbState.off;
-  bool _showDisclosure = false;
-
-  bool get _companionModeOn => _orbState != CompanionOrbState.off;
-
-  String get _companionStatus => switch (_orbState) {
-        CompanionOrbState.off => 'Companion mode off',
-        CompanionOrbState.listening => 'Listening for you',
-        CompanionOrbState.processing => 'Thinking about that...',
-        CompanionOrbState.speaking => 'Speaking to you',
-      };
-
-  @override
-  void dispose() {
-    super.dispose();
-  }
-
-  void _toggleCompanionMode() {
-    if (_companionModeOn) {
-      _companionMode.disable();
-      setState(() {
-        _orbState = CompanionOrbState.off;
-        _showDisclosure = false;
-      });
-      return;
-    }
-
-    _companionMode.enable();
-    setState(() {
-      _orbState = _companionMode.state;
-      _showDisclosure = !_hasShownDisclosure;
-      _hasShownDisclosure = true;
-    });
+  void _startVoiceCommand() {
     Navigator.pushNamed(context, '/listening');
   }
 
@@ -118,16 +82,16 @@ class _SpeakScreenState extends State<SpeakScreen> {
                 const Spacer(),
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: _toggleCompanionMode,
-                  child: GlowOrb(
+                  onTap: _startVoiceCommand,
+                  child: const GlowOrb(
                     icon: Icons.mic_rounded,
                     size: 172,
-                    state: _orbState,
+                    active: true,
                   ),
                 ),
                 const SizedBox(height: 18),
                 Text(
-                  _companionStatus,
+                  'Tap to Speak',
                   style: const TextStyle(
                     fontWeight: FontWeight.w800,
                     color: AppColors.cyan,
@@ -135,20 +99,10 @@ class _SpeakScreenState extends State<SpeakScreen> {
                 ),
                 const SizedBox(height: 7),
                 Text(
-                  _companionModeOn
-                      ? 'Tap the orb any time to turn Companion Mode off.'
-                      : 'Tap the orb to turn Companion Mode on.',
+                  'Tap the microphone and tell me what you need.',
                   style: const TextStyle(color: AppColors.muted, fontSize: 12),
                 ),
-                if (_showDisclosure) ...[
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Companion Mode keeps me listening between replies. It uses more battery, and I cannot hear you while I’m talking or thinking.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: AppColors.muted, fontSize: 11),
-                  ),
-                ] else
-                  const SizedBox(height: 22),
+                const SizedBox(height: 22),
                 const Spacer(),
                 GridView.count(
                   shrinkWrap: true,
@@ -203,8 +157,6 @@ class ListeningScreen extends StatefulWidget {
 
 class _ListeningScreenState extends State<ListeningScreen> {
   final SpeechService _speechService = SpeechService();
-  final CompanionModeController _companionMode =
-      CompanionModeController.instance;
   String _partialTranscript = '';
   String? _errorMessage;
   bool _hasNavigated = false;
@@ -216,10 +168,6 @@ class _ListeningScreenState extends State<ListeningScreen> {
   }
 
   Future<void> _startListening() async {
-    if (!_companionMode.isEnabled) {
-      return;
-    }
-    _companionMode.setListening();
     try {
       await _speechService.startListening(
         _onFinalTranscript,
@@ -245,12 +193,10 @@ class _ListeningScreenState extends State<ListeningScreen> {
     }
 
     if (transcript.trim().isEmpty) {
-      _restartListening();
       return;
     }
 
     _hasNavigated = true;
-    _companionMode.setProcessing();
     await _speechService.stopListening();
     if (mounted) {
       Navigator.pushReplacementNamed(
@@ -261,19 +207,7 @@ class _ListeningScreenState extends State<ListeningScreen> {
     }
   }
 
-  void _restartListening() {
-    if (!_companionMode.isEnabled || _hasNavigated) {
-      return;
-    }
-    Future<void>.delayed(const Duration(milliseconds: 350), () {
-      if (mounted && _companionMode.isEnabled && !_hasNavigated) {
-        _startListening();
-      }
-    });
-  }
-
   Future<void> _cancel() async {
-    _companionMode.disable();
     await _speechService.stopListening();
     if (mounted) {
       Navigator.pop(context);
@@ -302,10 +236,10 @@ class _ListeningScreenState extends State<ListeningScreen> {
           const Spacer(),
           GestureDetector(
             onTap: _cancel,
-            child: GlowOrb(
+            child: const GlowOrb(
               icon: Icons.mic_rounded,
               size: 150,
-              state: _companionMode.state,
+              active: true,
             ),
           ),
           const SizedBox(height: 28),
@@ -332,9 +266,9 @@ class _ListeningScreenState extends State<ListeningScreen> {
               style: OutlinedButton.styleFrom(
                 side: const BorderSide(color: AppColors.outline),
               ),
-              onPressed: null,
+              onPressed: _cancel,
               icon: const Icon(Icons.close),
-              label: const Text('Tap the orb to turn off'),
+              label: const Text('Cancel'),
             ),
           ),
           const SizedBox(height: 16),
@@ -351,8 +285,6 @@ class ProcessingScreen extends StatefulWidget {
 class _ProcessingScreenState extends State<ProcessingScreen> {
   final VisionMateBrain _brain = VisionMateBrain();
   final TtsService _ttsService = TtsService();
-  final CompanionModeController _companionMode =
-      CompanionModeController.instance;
   bool _hasStarted = false;
 
   @override
@@ -376,7 +308,6 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
     }
 
     final response = await _brain.classify(transcribedText);
-    _companionMode.setSpeaking();
     try {
       await _ttsService.speak(response.reply);
     } catch (_) {
@@ -384,13 +315,6 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
     }
 
     if (!mounted) {
-      return;
-    }
-
-    if (_companionMode.isEnabled &&
-        (response.intent == IntentType.chat ||
-            response.intent == IntentType.unknown)) {
-      Navigator.pushReplacementNamed(context, '/listening');
       return;
     }
 
