@@ -51,3 +51,12 @@ android/.gradle/
 
 # Reports
 *.html
+
+
+build/
+android/app/build/
+android/build/
+android/.gradle/
+*.apk
+*.aab
+*.tflite
