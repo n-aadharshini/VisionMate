@@ -4,11 +4,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_ui.dart';
 import '../assistant/models/chat_message.dart';
-import '../assistant/models/intent_type.dart';
-import '../assistant/services/conversation_session_controller.dart';
-import '../assistant/services/speech_service.dart';
-import '../assistant/services/tts_service.dart';
-import '../assistant/services/vision_mate_brain.dart';
+import '../assistant/services/conversation_controller.dart';
 
 class SplashScreen extends StatelessWidget {
   const SplashScreen({super.key});
@@ -299,26 +295,24 @@ class SpeakScreen extends StatefulWidget {
 }
 
 class _SpeakScreenState extends State<SpeakScreen> {
-  late final ConversationSessionController _controller;
+  late final ConversationController _controller;
   final ScrollController _scrollController = ScrollController();
   String? _startupError;
   String? _lastError;
+  bool _isSubscribed = false;
 
   @override
-  void initState() {
-    super.initState();
-    _controller = ConversationSessionController(
-      onError: (e) {
-        debugPrint('Conversation error: $e');
-        if (mounted) setState(() => _lastError = e.toString());
-      },
-    );
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_isSubscribed) return;
+    _controller = ConversationControllerScope.of(context);
     _controller.addListener(_onControllerChanged);
+    _isSubscribed = true;
     _init();
   }
 
   Future<void> _init() async {
-    final ok = await _controller.start();
+    final ok = await _controller.initialize();
     if (!ok && mounted) {
       setState(() {
         _startupError = 'Microphone access is needed for VisionMate to listen.';
@@ -342,9 +336,7 @@ class _SpeakScreenState extends State<SpeakScreen> {
 
   @override
   void dispose() {
-    _controller.removeListener(_onControllerChanged);
-    _controller.stop();
-    _controller.dispose();
+    if (_isSubscribed) _controller.removeListener(_onControllerChanged);
     _scrollController.dispose();
     super.dispose();
   }
@@ -461,7 +453,11 @@ class _SpeakScreenState extends State<SpeakScreen> {
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: () {
-                  if (_controller.state == ConversationState.speaking) {
+                  if (_controller.state == ConversationState.idle) {
+                    _controller.beginPushToTalk();
+                  } else if (_controller.state == ConversationState.listening) {
+                    _controller.endPushToTalk();
+                  } else if (_controller.state == ConversationState.speaking) {
                     _controller.interruptSpeaking();
                   }
                 },
@@ -478,9 +474,11 @@ class _SpeakScreenState extends State<SpeakScreen> {
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  _controller.partialTranscript.isNotEmpty &&
-                          _controller.state == ConversationState.listening
+                  _controller.state == ConversationState.listening &&
+                          _controller.partialTranscript.isNotEmpty
                       ? _controller.partialTranscript
+                      : _controller.finalTranscript.isNotEmpty
+                      ? _controller.finalTranscript
                       : _statusLabel,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -625,68 +623,34 @@ class ListeningScreen extends StatefulWidget {
 }
 
 class _ListeningScreenState extends State<ListeningScreen> {
-  final SpeechService _speechService = SpeechService();
-  String _partialTranscript = '';
+  late final ConversationController _controller;
   String? _errorMessage;
-  bool _hasNavigated = false;
+  bool _isBound = false;
 
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_isBound) return;
+    _controller = ConversationControllerScope.of(context);
+    _isBound = true;
     WidgetsBinding.instance.addPostFrameCallback((_) => _startListening());
   }
 
   Future<void> _startListening() async {
-    try {
-      await _speechService.startListening(
-        _onFinalTranscript,
-        onPartialResult: (text) {
-          if (mounted) {
-            setState(() => _partialTranscript = text);
-          }
-        },
-      );
-    } on StateError {
-      if (mounted) {
-        setState(() {
-          _errorMessage =
-              'Microphone access is needed before VisionMate can listen.';
-        });
-      }
-    }
-  }
-
-  Future<void> _onFinalTranscript(String transcript) async {
-    if (_hasNavigated) {
-      return;
-    }
-
-    if (transcript.trim().isEmpty) {
-      return;
-    }
-
-    _hasNavigated = true;
-    await _speechService.stopListening();
-    if (mounted) {
-      Navigator.pushReplacementNamed(
-        context,
-        '/processing',
-        arguments: transcript.trim(),
-      );
+    final started = await _controller.start();
+    if (!started && mounted) {
+      setState(() {
+        _errorMessage =
+            'Microphone access is needed before VisionMate can listen.';
+      });
     }
   }
 
   Future<void> _cancel() async {
-    await _speechService.stopListening();
+    await _controller.stop();
     if (mounted) {
       Navigator.pop(context);
     }
-  }
-
-  @override
-  void dispose() {
-    unawaited(_speechService.stopListening());
-    super.dispose();
   }
 
   @override
@@ -722,9 +686,9 @@ class _ListeningScreenState extends State<ListeningScreen> {
         const SizedBox(height: 13),
         Text(
           _errorMessage ??
-              (_partialTranscript.isEmpty
+              (_controller.partialTranscript.isEmpty
                   ? 'Tell me what you need help with.'
-                  : _partialTranscript),
+                  : _controller.partialTranscript),
           textAlign: TextAlign.center,
           style: const TextStyle(color: AppColors.muted),
         ),
@@ -747,94 +711,26 @@ class _ListeningScreenState extends State<ListeningScreen> {
   );
 }
 
-class ProcessingScreen extends StatefulWidget {
+class ProcessingScreen extends StatelessWidget {
   const ProcessingScreen({super.key});
 
   @override
-  State<ProcessingScreen> createState() => _ProcessingScreenState();
-}
-
-class _ProcessingScreenState extends State<ProcessingScreen> {
-  final VisionMateBrain _brain = VisionMateBrain();
-  final TtsService _ttsService = TtsService();
-  bool _hasStarted = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _processRequest());
-  }
-
-  Future<void> _processRequest() async {
-    if (_hasStarted) {
-      return;
-    }
-    _hasStarted = true;
-
-    final transcribedText =
-        ModalRoute.of(context)?.settings.arguments as String?;
-    if (transcribedText == null || transcribedText.trim().isEmpty) {
-      if (mounted) {
-        Navigator.pop(context);
-      }
-      return;
-    }
-
-    final response = await _brain.classify(transcribedText);
-    try {
-      await _ttsService.speak(response.reply);
-    } catch (_) {
-      // Navigation remains available even if native text-to-speech is unavailable.
-    }
-
-    if (!mounted) {
-      return;
-    }
-
-    if (response.confidence < 0.5) {
-      Navigator.pop(context);
-      return;
-    }
-
-    switch (response.intent) {
-      case IntentType.navigate:
-        Navigator.pushReplacementNamed(
-          context,
-          '/navigate',
-          arguments: response.destination,
-        );
-        return;
-      case IntentType.travel:
-        Navigator.pushReplacementNamed(
-          context,
-          '/travel',
-          arguments: response.destination,
-        );
-        return;
-      case IntentType.read:
-        Navigator.pushReplacementNamed(context, '/read');
-        return;
-      case IntentType.help:
-        Navigator.pushReplacementNamed(context, '/help');
-        return;
-      case IntentType.chat:
-      case IntentType.unknown:
-        Navigator.pop(context);
-        return;
-    }
-  }
-
-  @override
   Widget build(BuildContext context) => AppPage(
-    child: const Center(
+    child: Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          GlowOrb(icon: Icons.auto_awesome_rounded, size: 155, active: true),
-          SizedBox(height: 28),
+          GlowOrb(
+            icon: Icons.auto_awesome_rounded,
+            size: 155,
+            active: ConversationControllerScope.of(context).isThinking,
+          ),
+          const SizedBox(height: 28),
           Text(
-            'Understanding your request...',
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+            ConversationControllerScope.of(context).isThinking
+                ? 'Understanding your request...'
+                : 'Ready for your next request',
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
           ),
         ],
       ),

@@ -1,8 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../models/chat_message.dart';
+import '../models/intent_type.dart';
+import '../models/vision_mate_response.dart';
 import 'speech_service.dart';
 import 'tts_service.dart';
 import 'vision_mate_brain.dart';
@@ -42,11 +45,21 @@ class ConversationSessionController extends ChangeNotifier {
     // If a ttsService instance was passed in explicitly, still wire up
     // error reporting so silent playback failures surface to the caller.
     _ttsService.onError ??= onError;
+    _ttsService.onPlaybackStarted ??= _onTtsPlaybackStarted;
+    _volumeButtonChannel.setMethodCallHandler(_handleVolumeButtonEvent);
   }
+
+  static const _volumeButtonChannel = MethodChannel('visionmate/volume_button');
 
   final SpeechService _speechService;
   final TtsService _ttsService;
   final VisionMateBrain _brain;
+  final StreamController<NavigationRequest> _navigationRequests =
+      StreamController<NavigationRequest>.broadcast();
+
+  /// The root app listens here and performs intent-driven route changes.
+  Stream<NavigationRequest> get navigationRequests =>
+      _navigationRequests.stream;
 
   /// Surfaced for UI feedback (e.g. a toast or subtle earcon) — never
   /// throws past this controller. Also wired into [TtsService] so TTS
@@ -55,6 +68,8 @@ class ConversationSessionController extends ChangeNotifier {
 
   ConversationState _state = ConversationState.idle;
   ConversationState get state => _state;
+  bool get isListening => _state == ConversationState.listening;
+  bool get isThinking => _state == ConversationState.processing;
 
   // Guards against calling notifyListeners() (or touching platform
   // services) after dispose() has run. Needed because stop() is async
@@ -67,13 +82,93 @@ class ConversationSessionController extends ChangeNotifier {
   String _partialTranscript = '';
   String get partialTranscript => _partialTranscript;
 
+  String _finalTranscript = '';
+  String get finalTranscript => _finalTranscript;
+  DateTime? _recordingStoppedAt;
+  DateTime? _replyReceivedAt;
+
   bool get isSpeaking => _state == ConversationState.speaking;
 
   bool _isActive = false;
   bool get isActive => _isActive;
+  bool _pushToTalkHeld = false;
 
   final List<ChatMessage> _messages = [];
   List<ChatMessage> get messages => List.unmodifiable(_messages);
+
+  /// Prepares microphone permission without starting a capture session.
+  Future<bool> initialize() async {
+    final ok = await _speechService.initialize();
+    if (!ok) {
+      onError?.call(StateError('Microphone permission was not granted.'));
+    }
+    return ok;
+  }
+
+  Future<void> _handleVolumeButtonEvent(MethodCall call) async {
+    switch (call.method) {
+      case 'volumeUpPressed':
+        await beginPushToTalk();
+        return;
+      case 'volumeUpReleased':
+        await endPushToTalk();
+        return;
+    }
+  }
+
+  /// Starts the same foreground PTT capture used by the in-app mic control.
+  Future<bool> beginPushToTalk() async {
+    if (_pushToTalkHeld || _state != ConversationState.idle) return false;
+    if (!await initialize()) return false;
+
+    _pushToTalkHeld = true;
+    _isActive = true;
+    _partialTranscript = '';
+    _finalTranscript = '';
+    _setState(ConversationState.listening);
+    try {
+      await _speechService.startListening(
+        (_) {},
+        onPartialResult: (partial) {
+          _partialTranscript = partial;
+          _upsertPartialUserBubble(partial);
+          _safeNotify();
+        },
+        onRecordingStopped: _onRecordingStopped,
+      );
+      return true;
+    } catch (error) {
+      _pushToTalkHeld = false;
+      _isActive = false;
+      _setState(ConversationState.idle);
+      onError?.call(error);
+      return false;
+    }
+  }
+
+  /// Ends the PTT capture immediately, locks its live transcript, then runs
+  /// the existing Groq intent/reply pipeline. Nothing listens while it runs.
+  Future<void> endPushToTalk() async {
+    if (!_pushToTalkHeld || _state != ConversationState.listening) return;
+    _pushToTalkHeld = false;
+    final transcript = (await _speechService.stopListeningAndGetTranscript())
+        .trim();
+    _isActive = false;
+    _finalTranscript = transcript;
+    _partialTranscript = '';
+    debugPrint(
+      '[LISTEN END] ${DateTime.now().toIso8601String()} text="$transcript"',
+    );
+    _safeNotify();
+
+    if (transcript.isEmpty) {
+      _setState(ConversationState.idle);
+      return;
+    }
+
+    await _handleTurn(transcript);
+    if (!_disposed) _setState(ConversationState.idle);
+  }
 
   /// Starts the always-on loop. Returns false if mic permission or speech
   /// recognition initialization failed.
@@ -94,6 +189,7 @@ class ConversationSessionController extends ChangeNotifier {
 
   Future<void> stop() async {
     _isActive = false;
+    _pushToTalkHeld = false;
     await _speechService.stopListening();
     await _ttsService.stop();
     if (_disposed) return;
@@ -127,6 +223,74 @@ class ConversationSessionController extends ChangeNotifier {
   }
 
   Future<void> _handleTurn(String transcript) async {
+    _finalizeUserMessage(transcript);
+    _setState(ConversationState.processing);
+
+    VisionMateResponse response;
+    final apiStartedAt = DateTime.now();
+    debugPrint(
+      '[SENDING TO GROQ] ${apiStartedAt.toIso8601String()} text="$transcript"',
+    );
+    try {
+      response = await _brain.classify(transcript);
+    } catch (error) {
+      onError?.call(error);
+      response = const VisionMateResponse(
+        intent: IntentType.unknown,
+        destination: null,
+        reply: 'Sorry, I ran into a problem there. Could you try again?',
+        confidence: 0,
+        source: 'controller-fallback',
+      );
+    }
+
+    _replyReceivedAt = DateTime.now();
+    debugPrint(
+      '[GROQ RESPONSE RECEIVED] ${_replyReceivedAt!.toIso8601String()} '
+      'reply="${response.reply}" intent=${response.intent.name} '
+      'confidence=${response.confidence}',
+    );
+    debugPrint(
+      'VM_TIMING reply_ready ${_replyReceivedAt!.toIso8601String()} '
+      'duration_ms=${_replyReceivedAt!.difference(apiStartedAt).inMilliseconds} '
+      'source=${response.source}',
+    );
+
+    _messages.add(ChatMessage(role: ChatRole.assistant, text: response.reply));
+    _setState(ConversationState.speaking);
+    _safeNotify();
+    await _speechService.stopListening();
+    debugPrint(
+      '[TTS START] ${DateTime.now().toIso8601String()} text="${response.reply}"',
+    );
+    await _ttsService.speak(response.reply);
+    debugPrint('[TTS END] ${DateTime.now().toIso8601String()}');
+
+    if (response.confidence >= 0.5) {
+      final request = _navigationFor(response);
+      if (request != null) _navigationRequests.add(request);
+    }
+    await _ttsService.waitUntilDone();
+  }
+
+  NavigationRequest? _navigationFor(VisionMateResponse response) {
+    return switch (response.intent) {
+      IntentType.navigate => NavigationRequest(
+        routeName: '/navigate',
+        arguments: response.destination,
+      ),
+      IntentType.travel => NavigationRequest(
+        routeName: '/travel',
+        arguments: response.destination,
+      ),
+      IntentType.read => const NavigationRequest(routeName: '/read'),
+      IntentType.help => const NavigationRequest(routeName: '/help'),
+      IntentType.chat || IntentType.unknown => null,
+    };
+  }
+
+  // ignore: unused_element
+  Future<void> _legacyStreamTurn(String transcript) async {
     _finalizeUserMessage(transcript);
     _setState(ConversationState.processing);
 
@@ -196,13 +360,84 @@ class ConversationSessionController extends ChangeNotifier {
       try {
         await _speechService.startListening(
           (finalText) {
-            if (!completer.isCompleted) completer.complete(finalText);
+            _finalTranscript = finalText.trim();
+            final completedAt = DateTime.now();
+            final stoppedAt = _recordingStoppedAt;
+            debugPrint(
+              'VM_TIMING controller_final_transcript_ready '
+              '${completedAt.toIso8601String()} '
+              'stt_delay_ms=${stoppedAt == null ? 'unknown' : completedAt.difference(stoppedAt).inMilliseconds} '
+              'text="$_finalTranscript"',
+            );
+            _safeNotify();
+            if (!completer.isCompleted) completer.complete(_finalTranscript);
           },
           onPartialResult: (partial) {
             _partialTranscript = partial;
             _upsertPartialUserBubble(partial);
             _safeNotify();
           },
+          onRecordingStopped: _onRecordingStopped,
+        );
+      } catch (error) {
+        onError?.call(error);
+        await Future.delayed(const Duration(milliseconds: 600));
+        continue;
+      }
+
+      final result = (await completer.future).trim();
+      _partialTranscript = '';
+      if (result.isNotEmpty) return result;
+      if (!_isActive) return '';
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+    return '';
+  }
+
+  // ignore: unused_element
+  Future<String> _legacyNativeCaptureUtterance() async {
+    // Tracks repeated same-type native-recognizer errors (error_busy,
+    // error_client, ...) across restarts within this capture, so a real
+    // fault backs off harder than an ordinary silence timeout instead of
+    // both being treated the same way. Reset whenever a session ends
+    // cleanly (no error) or a different error type shows up.
+    var consecutiveSameError = 0;
+    String? lastErrorType;
+    // The timestamp of the last error we've already accounted for, so a
+    // single error doesn't get counted twice across loop iterations.
+    DateTime? consumedErrorAt;
+
+    while (_isActive) {
+      // Re-assert listening on every retry, not just the first attempt —
+      // makes the UI state self-correcting even if something else in the
+      // loop below changes it, instead of relying on nothing ever doing
+      // so (which was the actual bug: see _onRecordingStopped).
+      _setState(ConversationState.listening);
+      final completer = Completer<String>();
+      try {
+        await _speechService.startListening(
+          (finalText) {
+            _finalTranscript = finalText.trim();
+            final completedAt = DateTime.now();
+            final stoppedAt = _recordingStoppedAt;
+            debugPrint(
+              'VM_TIMING controller_final_transcript_ready '
+              '${completedAt.toIso8601String()} '
+              'stt_delay_ms=${stoppedAt == null ? 'unknown' : completedAt.difference(stoppedAt).inMilliseconds} '
+              'text="$_finalTranscript"',
+            );
+            _safeNotify();
+            if (!completer.isCompleted) completer.complete(_finalTranscript);
+          },
+          onPartialResult: (partial) {
+            _partialTranscript = partial;
+            debugPrint(
+              '[PARTIAL] ${DateTime.now().toIso8601String()} text="$partial"',
+            );
+            _upsertPartialUserBubble(partial);
+            _safeNotify();
+          },
+          onRecordingStopped: _onRecordingStopped,
         );
       } catch (e) {
         onError?.call(e);
@@ -214,12 +449,79 @@ class ConversationSessionController extends ChangeNotifier {
       _partialTranscript = '';
       if (result.isNotEmpty) return result;
       if (!_isActive) return '';
-      // Silence timeout with nothing said — brief pause, then relisten.
-      // The short gap matters on Android: starting a new session
-      // immediately after the previous one ends can throw "error_busy".
+
+      // Base gap before relistening — Android needs a moment to release
+      // the previous recognizer session. IMPORTANT: this wait must come
+      // *before* checking for an error below, not after. Device logs
+      // showed the native error (error_busy/error_client) consistently
+      // arriving asynchronously, shortly AFTER the 'done'/'notListening'
+      // status already resolved `result` above as empty — checking
+      // immediately here would see nothing yet, every single time, which
+      // is exactly what made the earlier version always log
+      // "error_type=none" even while errors were firing constantly.
       await Future.delayed(const Duration(milliseconds: 500));
+
+      final latestErrorAt = _speechService.lastErrorAt;
+      final sawNewError =
+          latestErrorAt != null &&
+          (consumedErrorAt == null || latestErrorAt.isAfter(consumedErrorAt!));
+      final errorType = sawNewError
+          ? _classifySttError(_speechService.lastError)
+          : null;
+      if (sawNewError) consumedErrorAt = latestErrorAt;
+
+      if (errorType != null) {
+        consecutiveSameError = errorType == lastErrorType
+            ? consecutiveSameError + 1
+            : 1;
+        lastErrorType = errorType;
+      } else {
+        consecutiveSameError = 0;
+        lastErrorType = null;
+      }
+
+      debugPrint(
+        'VM_TIMING stt_restart_decision error_type=${errorType ?? 'none'} '
+        'consecutive=$consecutiveSameError',
+      );
+
+      if (consecutiveSameError >= 3) {
+        // Same failure 3+ times in a row means this isn't Android's
+        // normal teardown lag anymore — retrying immediately would just
+        // spin. Stop the tight loop, tell the caller so it can surface
+        // something to the user, then cool down before trying again.
+        onError?.call(
+          StateError(
+            'Speech recognizer repeatedly failed ($lastErrorType) — '
+            'pausing before retrying.',
+          ),
+        );
+        await Future.delayed(const Duration(seconds: 3));
+        consecutiveSameError = 0;
+        lastErrorType = null;
+        continue;
+      }
+
+      if (errorType != null) {
+        // Already waited the base 500ms gap above; add an escalating
+        // amount on top so repeated errors in a row back off harder,
+        // without penalizing the very first retry after an error.
+        final extra = Duration(milliseconds: 600 * (consecutiveSameError - 1));
+        if (extra > Duration.zero) await Future.delayed(extra);
+      }
     }
     return '';
+  }
+
+  /// Buckets a session error into a coarse type so repeated *same-kind*
+  /// failures can be counted for backoff, without depending on the exact
+  /// wording of platform error objects.
+  String? _classifySttError(Object? error) {
+    if (error == null) return null;
+    final text = error.toString().toLowerCase();
+    if (text.contains('busy')) return 'busy';
+    if (text.contains('client')) return 'client';
+    return 'other';
   }
 
   void _upsertPartialUserBubble(String text) {
@@ -273,8 +575,42 @@ class ConversationSessionController extends ChangeNotifier {
     _isActive = false;
     unawaited(_speechService.stopListening());
     unawaited(_ttsService.dispose());
+    unawaited(_navigationRequests.close());
     super.dispose();
   }
+
+  void _onRecordingStopped() {
+    _recordingStoppedAt = DateTime.now();
+    debugPrint(
+      'VM_TIMING mic_stopped ${_recordingStoppedAt!.toIso8601String()}',
+    );
+    // Deliberately no state change here. This fires on EVERY session end,
+    // including a failed/empty one (silence timeout, error_busy,
+    // error_client) that _captureUtterance is about to silently retry —
+    // not just a real captured utterance. Flipping to `processing` here
+    // used to leave the UI stuck showing "Thinking..." for the entire STT
+    // retry loop, since nothing set it back to `listening` in between
+    // retries (that only happens once, at the top of `_mainLoop`, before
+    // `_captureUtterance`'s own retry loop even starts). The transition to
+    // `processing` now only happens in `_handleTurn`, once there's an
+    // actual non-empty transcript to act on.
+  }
+
+  void _onTtsPlaybackStarted() {
+    final startedAt = DateTime.now();
+    final replyAt = _replyReceivedAt;
+    debugPrint(
+      'VM_TIMING tts_playback_started ${startedAt.toIso8601String()} '
+      'tts_start_delay_ms=${replyAt == null ? 'unknown' : startedAt.difference(replyAt).inMilliseconds}',
+    );
+  }
+}
+
+class NavigationRequest {
+  const NavigationRequest({required this.routeName, this.arguments});
+
+  final String routeName;
+  final Object? arguments;
 }
 
 class _SentenceSplit {

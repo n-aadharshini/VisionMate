@@ -44,5 +44,18 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- Required so the app can see/bind to the on-device speech
+             recognition service on Android 11+ (API 30+) package
+             visibility rules. Without this, speech_to_text's listen()
+             calls fail immediately with a permanent error_client, on
+             every single attempt, regardless of retry/backoff logic in
+             Dart code — this is an OS-level visibility restriction, not
+             something app code can work around. -->
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <intent>
+            <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
+        </intent>
     </queries>
 </manifest>

@@ -44,7 +44,12 @@ import 'package:path_provider/path_provider.dart';
 ///
 /// [stop] truly interrupts mid-sentence — this is the hook barge-in uses.
 class TtsService {
-  TtsService({http.Client? client, AudioPlayer? audioPlayer, this.onError})
+  TtsService({
+    http.Client? client,
+    AudioPlayer? audioPlayer,
+    this.onError,
+    this.onPlaybackStarted,
+  })
     : _client = client ?? http.Client(),
       _player = audioPlayer ?? AudioPlayer();
 
@@ -78,6 +83,9 @@ class TtsService {
   /// looked like "the assistant only replies in text, never speaks."
   void Function(Object error)? onError;
 
+  /// Fires at the first moment audio is handed to a playback engine.
+  void Function()? onPlaybackStarted;
+
   final Queue<String> _queue = Queue<String>();
   bool _draining = false;
 
@@ -88,7 +96,7 @@ class TtsService {
   int _session = 0;
 
   /// True while there is audio queued or actively playing.
-  bool get isSpeaking => _queue.isNotEmpty || _player.playing;
+  bool get isSpeaking => _queue.isNotEmpty || _draining || _player.playing;
 
   /// Splits [text] into sentences and enqueues each — use this for a
   /// complete, already-final block of text.
@@ -96,6 +104,7 @@ class TtsService {
     for (final sentence in _splitSentences(text)) {
       enqueueSentence(sentence);
     }
+    await waitUntilDone();
   }
 
   /// Adds one sentence to the playback queue and kicks off draining if
@@ -112,7 +121,7 @@ class TtsService {
   /// stopped). Lets the conversation controller know when it's safe to
   /// treat the assistant as done speaking.
   Future<void> waitUntilDone() async {
-    while (_queue.isNotEmpty || _player.playing) {
+    while (_queue.isNotEmpty || _draining || _player.playing) {
       await Future.delayed(const Duration(milliseconds: 50));
     }
   }
@@ -153,6 +162,7 @@ class TtsService {
       await _player.setFilePath(file.path);
       if (session != _session) return; // interrupted while loading
 
+      onPlaybackStarted?.call();
       await _player.play();
       // Wait for this sentence to finish, or bail out early if stop()
       // bumps the session while it's playing.
@@ -181,6 +191,7 @@ class TtsService {
         _fallbackReady = true;
       }
       if (session != _session) return; // interrupted before we could start
+      onPlaybackStarted?.call();
       await _fallbackTts.speak(text);
     } catch (e) {
       // If even the on-device voice fails, there's genuinely nothing left
