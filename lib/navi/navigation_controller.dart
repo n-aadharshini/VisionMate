@@ -3,11 +3,13 @@ import 'package:geolocator/geolocator.dart';
 import 'location_service.dart';
 import 'directions_service.dart';
 import 'tts_service.dart';
+import 'speech_service.dart';
 
 class NavigationController {
   final LocationService _locationService = LocationService();
   final DirectionsService _directionsService = DirectionsService();
   final TtsService _ttsService = TtsService();
+  final SpeechService _speechService = SpeechService();
 
   List<Map<String, dynamic>> _steps = [];
   int _currentStepIndex = 0;
@@ -17,6 +19,8 @@ class NavigationController {
   /// e.g. "hospital", "pharmacy", "bus stop"
   Future<void> startNavigation(String destinationKeyword) async {
     try {
+      await _ttsService.speak("Finding the nearest $destinationKeyword");
+
       final currentPosition = await _locationService.getCurrentLocation();
 
       final place = await _directionsService.findNearestPlace(
@@ -29,6 +33,8 @@ class NavigationController {
       final destLng = place['lng'] as double;
       final placeName = place['name'] as String;
 
+      await _ttsService.speak("Found $placeName, calculating the route");
+
       _steps = await _directionsService.getWalkingSteps(
         currentPosition.latitude,
         currentPosition.longitude,
@@ -38,7 +44,25 @@ class NavigationController {
 
       _currentStepIndex = 0;
 
-      await _ttsService.speak("Starting navigation to $placeName");
+      final stepCount = _steps.length;
+      await _ttsService.speak(
+        "Route ready. $stepCount steps to $placeName. Say start to begin, or cancel to stop.",
+      );
+
+      final confirmation = await _speechService.listenOnce();
+      final lowerConfirmation = confirmation.toLowerCase();
+
+      final isConfirmed =
+          lowerConfirmation.contains('start') ||
+          lowerConfirmation.contains('go') ||
+          lowerConfirmation.contains('yes');
+
+      if (!isConfirmed) {
+        await _ttsService.speak("Okay, navigation cancelled.");
+        return;
+      }
+
+      await _ttsService.speak("Starting navigation");
 
       if (_steps.isNotEmpty) {
         await _ttsService.speak(_steps[0]['instruction'] as String);
@@ -49,10 +73,13 @@ class NavigationController {
       );
     } catch (e) {
       await _ttsService.speak(
-        "Sorry, navigation could not start. ${e.toString()}",
+        "Sorry, I couldn't find a nearby $destinationKeyword or calculate a route. Please try again.",
       );
     }
   }
+
+  bool _earlyWarningGiven = false;
+  bool _finalWarningGiven = false;
 
   void _checkProgress(Position pos) {
     if (_currentStepIndex >= _steps.length) return;
@@ -65,11 +92,23 @@ class NavigationController {
       step['lng'] as double,
     );
 
-    if (distance < 10) {
+    final instruction = _steps[_currentStepIndex]['instruction'] as String;
+
+    if (distance <= 20 && distance > 8 && !_earlyWarningGiven) {
+      _earlyWarningGiven = true;
+      _ttsService.speak("In 20 meters, $instruction");
+    } else if (distance <= 8 && !_finalWarningGiven) {
+      _finalWarningGiven = true;
+      _ttsService.speak(instruction);
+    } else if (distance < 4) {
       _currentStepIndex++;
+      _earlyWarningGiven = false;
+      _finalWarningGiven = false;
 
       if (_currentStepIndex < _steps.length) {
-        _ttsService.speak(_steps[_currentStepIndex]['instruction'] as String);
+        final nextInstruction =
+            _steps[_currentStepIndex]['instruction'] as String;
+        _ttsService.speak(nextInstruction);
       } else {
         _ttsService.speak("You have arrived at your destination");
         stopNavigation();
@@ -110,7 +149,10 @@ class NavigationController {
         await _ttsService.speak(step['instruction'] as String);
       }
     } catch (e) {
-      await _ttsService.speak("Sorry, could not preview the route.");
+      await _ttsService.speak(
+        "Sorry, I couldn't find a nearby $destinationKeyword, or there was a connection issue. "
+        "Please check your internet and try again.",
+      );
     }
   }
 }

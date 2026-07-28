@@ -68,5 +68,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSMicrophoneUsageDescription</key>
+<string>VisionMate needs microphone access to hear your voice commands.</string>
+<key>NSSpeechRecognitionUsageDescription</key>
+<string>VisionMate needs speech recognition to understand your commands.</string>
 </dict>
 </plist>

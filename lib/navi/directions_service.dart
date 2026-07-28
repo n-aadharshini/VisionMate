@@ -14,7 +14,8 @@ class DirectionsService {
       '?q=$keyword'
       '&format=json'
       '&limit=1'
-      '&lat=$lat&lon=$lng',
+      '&lat=$lat&lon=$lng'
+      '&accept-language=en',
     );
 
     final response = await http.get(
@@ -28,9 +29,15 @@ class DirectionsService {
       throw Exception('No place found nearby for "$keyword"');
     }
 
-    final result = data[0];
+   final result = data[0];
+    final rawName = result['display_name'] as String;
+
+    // Keep only the first part of the address (before the first comma) and strip non-English characters
+    final firstPart = rawName.split(',').first.trim();
+    final cleanName = firstPart.replaceAll(RegExp(r'[^\x00-\x7F]+'), '').trim();
+
     return {
-      'name': result['display_name'],
+      'name': cleanName.isNotEmpty ? cleanName : 'your destination',
       'lat': double.parse(result['lat']),
       'lng': double.parse(result['lon']),
     };
@@ -76,10 +83,16 @@ class DirectionsService {
 
   /// OSRM gives raw maneuver types instead of ready sentences like Google does,
   /// so we build a simple human-readable instruction ourselves.
-  String _buildInstruction(String type, String? modifier, String? roadName) {
-    final road = (roadName != null && roadName.isNotEmpty)
-        ? " onto $roadName"
-        : "";
+String _buildInstruction(String type, String? modifier, String? roadName) {
+    String cleanRoadName = '';
+    if (roadName != null && roadName.isNotEmpty) {
+      // Keep only Latin letters, numbers, spaces, and basic punctuation
+      final asciiOnly = roadName.replaceAll(RegExp(r'[^\x00-\x7F]+'), '').trim();
+      if (asciiOnly.isNotEmpty) {
+        cleanRoadName = asciiOnly;
+      }
+    }
+    final road = cleanRoadName.isNotEmpty ? " onto $cleanRoadName" : "";
 
     switch (type) {
       case 'depart':

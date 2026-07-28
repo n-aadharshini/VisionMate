@@ -123,7 +123,7 @@ class _NavigateScreenState extends State<NavigateScreen> {
 
   Future<void> _goTo(String destination) async {
     setState(() => _isNavigating = true);
-    await _navController.previewRoute(destination);
+    await _navController.startNavigation(destination);
     if (mounted) setState(() => _isNavigating = false);
   }
 
