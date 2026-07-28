@@ -121,6 +121,16 @@ class _NavigateScreenState extends State<NavigateScreen> {
   final NavigationController _navController = NavigationController();
   bool _isNavigating = false;
 
+  @override
+  void initState() {
+    super.initState();
+    _navController.onArrived = () {
+      if (mounted) {
+        Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
+      }
+    };
+  }
+
   Future<void> _goTo(String destination) async {
     setState(() => _isNavigating = true);
     await _navController.startNavigation(destination);

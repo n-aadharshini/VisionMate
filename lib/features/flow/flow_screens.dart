@@ -439,6 +439,11 @@ class _ListeningScreenState extends State<ListeningScreen> {
   @override
   void initState() {
     super.initState();
+    _navController.onArrived = () {
+      if (mounted) {
+        Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
+      }
+    };
     _startListening();
   }
 

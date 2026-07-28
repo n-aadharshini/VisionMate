@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'location_service.dart';
 import 'directions_service.dart';
@@ -15,10 +16,17 @@ class NavigationController {
   int _currentStepIndex = 0;
   StreamSubscription<Position>? _positionStream;
 
+  double? _lastDistance;
+  int _increasingDistanceCount = 0;
+  bool _isRecalculating = false;
+  String _currentDestinationKeyword = '';
+  VoidCallback? onArrived;
+
   /// Starts navigation to the nearest place matching [destinationKeyword]
   /// e.g. "hospital", "pharmacy", "bus stop"
-  Future<void> startNavigation(String destinationKeyword) async {
+ Future<void> startNavigation(String destinationKeyword) async {
     try {
+      _currentDestinationKeyword = destinationKeyword;
       await _ttsService.speak("Finding the nearest $destinationKeyword");
 
       final currentPosition = await _locationService.getCurrentLocation();
@@ -81,8 +89,8 @@ class NavigationController {
   bool _earlyWarningGiven = false;
   bool _finalWarningGiven = false;
 
-  void _checkProgress(Position pos) {
-    if (_currentStepIndex >= _steps.length) return;
+  void _checkProgress(Position pos) async {
+    if (_currentStepIndex >= _steps.length || _isRecalculating) return;
 
     final step = _steps[_currentStepIndex];
     final double distance = Geolocator.distanceBetween(
@@ -91,6 +99,23 @@ class NavigationController {
       step['lat'] as double,
       step['lng'] as double,
     );
+
+    // Deviation detection: if distance keeps growing over several updates, we're off route
+    if (_lastDistance != null && distance > _lastDistance! + 3) {
+      _increasingDistanceCount++;
+    } else {
+      _increasingDistanceCount = 0;
+    }
+    _lastDistance = distance;
+
+    if (_increasingDistanceCount >= 4) {
+      _increasingDistanceCount = 0;
+      _isRecalculating = true;
+      await _ttsService.speak("You seem to have gone off route. Recalculating.");
+      await _recalculateRoute(pos);
+      _isRecalculating = false;
+      return;
+    }
 
     final instruction = _steps[_currentStepIndex]['instruction'] as String;
 
@@ -104,15 +129,48 @@ class NavigationController {
       _currentStepIndex++;
       _earlyWarningGiven = false;
       _finalWarningGiven = false;
+      _lastDistance = null;
 
       if (_currentStepIndex < _steps.length) {
         final nextInstruction =
             _steps[_currentStepIndex]['instruction'] as String;
         _ttsService.speak(nextInstruction);
       } else {
-        _ttsService.speak("You have arrived at your destination");
+        await _ttsService.speak("You have arrived at your destination");
         stopNavigation();
+        onArrived?.call();
       }
+    }
+  }
+
+  Future<void> _recalculateRoute(Position pos) async {
+    try {
+      final place = await _directionsService.findNearestPlace(
+        pos.latitude,
+        pos.longitude,
+        _currentDestinationKeyword,
+      );
+
+      final destLat = place['lat'] as double;
+      final destLng = place['lng'] as double;
+
+      _steps = await _directionsService.getWalkingSteps(
+        pos.latitude,
+        pos.longitude,
+        destLat,
+        destLng,
+      );
+
+      _currentStepIndex = 0;
+      _lastDistance = null;
+
+      if (_steps.isNotEmpty) {
+        await _ttsService.speak(
+          "New route found. ${_steps[0]['instruction']}",
+        );
+      }
+    } catch (e) {
+      await _ttsService.speak("Could not recalculate the route.");
     }
   }
 
