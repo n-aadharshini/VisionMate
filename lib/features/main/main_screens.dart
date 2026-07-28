@@ -187,7 +187,7 @@ class NavigateScreen extends StatelessWidget {
               child: PrimaryButton(
                 label: 'Voice',
                 icon: Icons.mic_rounded,
-                onPressed: () => Navigator.pushNamed(c, '/listening'),
+                onPressed: () => Navigator.pushNamed(c, '/speak'),
               ),
             ),
           ],
@@ -378,7 +378,7 @@ class TravelScreen extends StatelessWidget {
           PrimaryButton(
             label: 'Ask about travel',
             icon: Icons.mic_rounded,
-            onPressed: () => Navigator.pushNamed(context, '/listening'),
+            onPressed: () => Navigator.pushNamed(context, '/speak'),
           ),
           const SizedBox(height: 16),
         ],

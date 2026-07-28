@@ -300,6 +300,7 @@ class _SpeakScreenState extends State<SpeakScreen> {
   String? _startupError;
   String? _lastError;
   bool _isSubscribed = false;
+  StreamSubscription<Object>? _errorSubscription;
 
   @override
   void didChangeDependencies() {
@@ -307,6 +308,11 @@ class _SpeakScreenState extends State<SpeakScreen> {
     if (_isSubscribed) return;
     _controller = ConversationControllerScope.of(context);
     _controller.addListener(_onControllerChanged);
+    // Previously nothing ever assigned _lastError, so the error banner
+    // below could never appear even though the controller was reporting
+    // failures. Subscribing here surfaces every STT/Groq/TTS/channel
+    // error the controller sees while this screen is open.
+    _errorSubscription = _controller.errors.listen(_onControllerError);
     _isSubscribed = true;
     _init();
   }
@@ -317,6 +323,24 @@ class _SpeakScreenState extends State<SpeakScreen> {
       setState(() {
         _startupError = 'Microphone access is needed for VisionMate to listen.';
       });
+    }
+  }
+
+  void _onControllerError(Object error) {
+    if (!mounted) return;
+    setState(() => _lastError = _friendlyErrorMessage(error));
+  }
+
+  String _friendlyErrorMessage(Object error) {
+    // Keep this short — it renders in a single-line banner. The full
+    // error is still available in the debug/log output via onError.
+    final text = error.toString();
+    return text.length > 120 ? '${text.substring(0, 117)}...' : text;
+  }
+
+  void _endMicHoldIfListening() {
+    if (_controller.state == ConversationState.listening) {
+      _controller.endPushToTalk();
     }
   }
 
@@ -337,6 +361,7 @@ class _SpeakScreenState extends State<SpeakScreen> {
   @override
   void dispose() {
     if (_isSubscribed) _controller.removeListener(_onControllerChanged);
+    _errorSubscription?.cancel();
     _scrollController.dispose();
     super.dispose();
   }
@@ -344,7 +369,7 @@ class _SpeakScreenState extends State<SpeakScreen> {
   String get _statusLabel => switch (_controller.state) {
     ConversationState.idle => 'Ready',
     ConversationState.listening => "I'm listening...",
-    ConversationState.processing => 'Thinking...',
+    ConversationState.processing => 'Processing...',
     ConversationState.speaking => 'Speaking...',
   };
 
@@ -452,15 +477,21 @@ class _SpeakScreenState extends State<SpeakScreen> {
             children: [
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: () {
+                // Press-and-hold, matching the hardware Volume Up button:
+                // press down starts capture, releasing (lifting the
+                // finger, or the gesture being cancelled mid-hold, e.g. by
+                // dragging off the orb) ends it. This replaces the old
+                // tap-to-start/tap-to-stop toggle, whose behavior didn't
+                // match the hold/release hardware control.
+                onTapDown: (_) {
                   if (_controller.state == ConversationState.idle) {
                     _controller.beginPushToTalk();
-                  } else if (_controller.state == ConversationState.listening) {
-                    _controller.endPushToTalk();
                   } else if (_controller.state == ConversationState.speaking) {
                     _controller.interruptSpeaking();
                   }
                 },
+                onTapUp: (_) => _endMicHoldIfListening(),
+                onTapCancel: _endMicHoldIfListening,
                 child: GlowOrb(
                   icon: switch (_controller.state) {
                     ConversationState.speaking => Icons.graphic_eq_rounded,
@@ -611,102 +642,6 @@ class _QuickMode extends StatelessWidget {
           ],
         ),
       ),
-    ),
-  );
-}
-
-class ListeningScreen extends StatefulWidget {
-  const ListeningScreen({super.key});
-
-  @override
-  State<ListeningScreen> createState() => _ListeningScreenState();
-}
-
-class _ListeningScreenState extends State<ListeningScreen> {
-  late final ConversationController _controller;
-  String? _errorMessage;
-  bool _isBound = false;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_isBound) return;
-    _controller = ConversationControllerScope.of(context);
-    _isBound = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) => _startListening());
-  }
-
-  Future<void> _startListening() async {
-    final started = await _controller.start();
-    if (!started && mounted) {
-      setState(() {
-        _errorMessage =
-            'Microphone access is needed before VisionMate can listen.';
-      });
-    }
-  }
-
-  Future<void> _cancel() async {
-    await _controller.stop();
-    if (mounted) {
-      Navigator.pop(context);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => AppPage(
-    child: Column(
-      children: [
-        const SizedBox(height: 35),
-        const Text(
-          'LISTENING...',
-          style: TextStyle(
-            color: AppColors.cyan,
-            fontSize: 11,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.4,
-          ),
-        ),
-        const Spacer(),
-        GestureDetector(
-          onTap: _cancel,
-          child: const GlowOrb(
-            icon: Icons.mic_rounded,
-            size: 150,
-            active: true,
-          ),
-        ),
-        const SizedBox(height: 28),
-        const Text(
-          "I'm listening...",
-          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 26),
-        ),
-        const SizedBox(height: 10),
-        const Waveform(width: 210),
-        const SizedBox(height: 13),
-        Text(
-          _errorMessage ??
-              (_controller.partialTranscript.isEmpty
-                  ? 'Tell me what you need help with.'
-                  : _controller.partialTranscript),
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: AppColors.muted),
-        ),
-        const Spacer(),
-        SizedBox(
-          width: double.infinity,
-          height: 51,
-          child: OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(
-              side: const BorderSide(color: AppColors.outline),
-            ),
-            onPressed: _cancel,
-            icon: const Icon(Icons.close),
-            label: const Text('Cancel'),
-          ),
-        ),
-        const SizedBox(height: 16),
-      ],
     ),
   );
 }

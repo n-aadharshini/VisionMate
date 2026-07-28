@@ -13,6 +13,19 @@ class MainActivity : FlutterActivity() {
         channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, volumeButtonChannel)
     }
 
+    // Mirrors configureFlutterEngine: clears our reference to this engine's
+    // channel when the engine is detached (e.g. engine cache invalidated,
+    // activity recreated). Without this, a key event that arrives mid-
+    // teardown could call invokeMethod on a channel bound to a
+    // BinaryMessenger whose Dart side is already gone — this makes sure
+    // that reference is dropped as soon as the engine says it's detaching,
+    // so onKeyDown/onKeyUp firing around that moment is a safe no-op
+    // (methodCallHandler == null) rather than a call into nothing.
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        channel = null
+        super.cleanUpFlutterEngine(flutterEngine)
+    }
+
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {
         if (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP) {
             // Ignore Android's auto-repeat key-down events: one physical hold

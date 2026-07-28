@@ -49,9 +49,8 @@ class TtsService {
     AudioPlayer? audioPlayer,
     this.onError,
     this.onPlaybackStarted,
-  })
-    : _client = client ?? http.Client(),
-      _player = audioPlayer ?? AudioPlayer();
+  }) : _client = client ?? http.Client(),
+       _player = audioPlayer ?? AudioPlayer();
 
   static const _voiceEndpoint = 'https://api.groq.com/openai/v1/audio/speech';
   static const _model = 'canopylabs/orpheus-v1-english';
@@ -152,14 +151,15 @@ class TtsService {
   }
 
   Future<void> _speakNow(String text, int session) async {
+    File? tempFile;
     try {
       final bytes = await _fetchAudio(text);
       if (session != _session) return; // interrupted while fetching
 
-      final file = await _writeTempFile(bytes);
+      tempFile = await _writeTempFile(bytes);
       if (session != _session) return; // interrupted while writing
 
-      await _player.setFilePath(file.path);
+      await _player.setFilePath(tempFile.path);
       if (session != _session) return; // interrupted while loading
 
       onPlaybackStarted?.call();
@@ -179,6 +179,14 @@ class TtsService {
       // shouldn't mean the assistant never speaks at all.
       if (session == _session) {
         await _speakWithFallback(text, session);
+      }
+    } finally {
+      // Always clean up this sentence's temp file once we're done with it
+      // (playback finished, was interrupted, or never got played due to an
+      // error) — otherwise every turn leaves a stray .wav behind and
+      // repeated conversations slowly eat into temp storage.
+      if (tempFile != null) {
+        unawaited(tempFile.delete().catchError((_) => tempFile!));
       }
     }
   }

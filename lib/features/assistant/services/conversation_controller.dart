@@ -37,7 +37,7 @@ class ConversationStateIndicator extends StatelessWidget {
     final label = switch (state) {
       ConversationState.idle => 'Idle',
       ConversationState.listening => 'Listening...',
-      ConversationState.processing => 'Thinking...',
+      ConversationState.processing => 'Processing...',
       ConversationState.speaking => 'Speaking...',
     };
     return IgnorePointer(
