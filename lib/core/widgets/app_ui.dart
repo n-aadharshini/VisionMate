@@ -41,7 +41,7 @@ class GlowOrb extends StatelessWidget {
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           gradient: const RadialGradient(colors: [Color(0xFF55E2FF), Color(0xFF2079EC), Color(0xFF12296A)]),
-          boxShadow: [BoxShadow(color: AppColors.cyan.withOpacity(active ? .64 : .26), blurRadius: active ? 42 : 22, spreadRadius: active ? 8 : 1)],
+          boxShadow: [BoxShadow(color: AppColors.cyan.withValues(alpha: active ? .64 : .26), blurRadius: active ? 42 : 22, spreadRadius: active ? 8 : 1)],
         ),
         child: Icon(icon, color: Colors.white, size: size * .3),
       );
@@ -55,7 +55,7 @@ class AppCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
         padding: padding,
-        decoration: BoxDecoration(color: color ?? AppColors.surface.withOpacity(.92), borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.outline)),
+        decoration: BoxDecoration(color: color ?? AppColors.surface.withValues(alpha: .92), borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.outline)),
         child: child,
       );
 }
@@ -116,7 +116,7 @@ class ModeTile extends StatelessWidget {
   Widget build(BuildContext context) => InkWell(
     borderRadius: BorderRadius.circular(16), onTap: () => Navigator.pushNamed(context, route),
     child: AppCard(padding: const EdgeInsets.all(11), child: Row(children: [
-      CircleAvatar(backgroundColor: (danger ? AppColors.danger : AppColors.cyan).withOpacity(.16), child: Icon(icon, color: danger ? AppColors.danger : AppColors.cyan, size: 20)),
+      CircleAvatar(backgroundColor: (danger ? AppColors.danger : AppColors.cyan).withValues(alpha: .16), child: Icon(icon, color: danger ? AppColors.danger : AppColors.cyan, size: 20)),
       const SizedBox(width: 9), Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: const TextStyle(fontWeight: FontWeight.w800)), Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, color: AppColors.muted))]))
     ])),
   );
