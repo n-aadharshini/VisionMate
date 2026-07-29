@@ -16,17 +16,18 @@ class NavigationController {
   int _currentStepIndex = 0;
   StreamSubscription<Position>? _positionStream;
 
-  double? _lastDistance;
-  int _increasingDistanceCount = 0;
+ 
   bool _isRecalculating = false;
   String _currentDestinationKeyword = '';
   VoidCallback? onArrived;
+  List<Map<String, double>> _polyline = [];
 
   /// Starts navigation to the nearest place matching [destinationKeyword]
   /// e.g. "hospital", "pharmacy", "bus stop"
  Future<void> startNavigation(String destinationKeyword) async {
     try {
       _currentDestinationKeyword = destinationKeyword;
+
       await _ttsService.speak("Finding the nearest $destinationKeyword");
 
       final currentPosition = await _locationService.getCurrentLocation();
@@ -43,27 +44,70 @@ class NavigationController {
 
       await _ttsService.speak("Found $placeName, calculating the route");
 
-      _steps = await _directionsService.getWalkingSteps(
+      final routeData = await _directionsService.getWalkingSteps(
         currentPosition.latitude,
         currentPosition.longitude,
         destLat,
         destLng,
       );
 
+      _steps = routeData['steps'] as List<Map<String, dynamic>>;
+      final distanceMeters = routeData['distanceMeters'] as double;
+      final durationSeconds = routeData['durationSeconds'] as double;
+      _polyline = (routeData['polyline'] as List)
+          .map((p) => Map<String, double>.from(p as Map))
+          .toList();
+
       _currentStepIndex = 0;
 
       final stepCount = _steps.length;
-      await _ttsService.speak(
-        "Route ready. $stepCount steps to $placeName. Say start to begin, or cancel to stop.",
-      );
+      final distanceText = distanceMeters >= 1000
+          ? "${(distanceMeters / 1000).toStringAsFixed(1)} kilometers"
+          : "${distanceMeters.round()} meters";
+      final minutes = (durationSeconds / 60).round();
 
-      final confirmation = await _speechService.listenOnce();
-      final lowerConfirmation = confirmation.toLowerCase();
+      bool isConfirmed = false;
+      int attempts = 0;
 
-      final isConfirmed =
-          lowerConfirmation.contains('start') ||
-          lowerConfirmation.contains('go') ||
-          lowerConfirmation.contains('yes');
+      while (!isConfirmed && attempts < 3) {
+        attempts++;
+        await _ttsService.speak(
+          "Route ready. $stepCount steps to $placeName. "
+          "About $distanceText, $minutes minutes walking. "
+          "Say start to begin, or cancel to stop.",
+        );
+
+        final confirmation = await _speechService.listenOnce();
+        final lower = confirmation.toLowerCase().trim();
+
+        if (lower.isEmpty) {
+          // Didn't catch anything - retry without treating it as "no"
+          await _ttsService.speak("I didn't catch that.");
+          continue;
+        }
+
+        final saidStart = lower.contains('start') ||
+            lower.contains('go') ||
+            lower.contains('yes') ||
+            lower.contains('yeah') ||
+            lower.contains('yep') ||
+            lower.contains('sure') ||
+            lower.contains('okay') ||
+            lower.contains('ok');
+
+        final saidCancel = lower.contains('cancel') ||
+            lower.contains('stop') ||
+            lower.contains('no');
+
+        if (saidStart) {
+          isConfirmed = true;
+        } else if (saidCancel) {
+          await _ttsService.speak("Okay, navigation cancelled.");
+          return;
+        } else {
+          await _ttsService.speak("Sorry, please say start or cancel.");
+        }
+      }
 
       if (!isConfirmed) {
         await _ttsService.speak("Okay, navigation cancelled.");
@@ -101,15 +145,10 @@ class NavigationController {
     );
 
     // Deviation detection: if distance keeps growing over several updates, we're off route
-    if (_lastDistance != null && distance > _lastDistance! + 3) {
-      _increasingDistanceCount++;
-    } else {
-      _increasingDistanceCount = 0;
-    }
-    _lastDistance = distance;
+    // Deviation detection: check actual distance from the route path itself
+    final distanceFromRoute = _distanceToRoute(pos);
 
-    if (_increasingDistanceCount >= 4) {
-      _increasingDistanceCount = 0;
+    if (distanceFromRoute > 30) {
       _isRecalculating = true;
       await _ttsService.speak("You seem to have gone off route. Recalculating.");
       await _recalculateRoute(pos);
@@ -129,7 +168,7 @@ class NavigationController {
       _currentStepIndex++;
       _earlyWarningGiven = false;
       _finalWarningGiven = false;
-      _lastDistance = null;
+      
 
       if (_currentStepIndex < _steps.length) {
         final nextInstruction =
@@ -154,15 +193,16 @@ class NavigationController {
       final destLat = place['lat'] as double;
       final destLng = place['lng'] as double;
 
-      _steps = await _directionsService.getWalkingSteps(
+      final routeData = await _directionsService.getWalkingSteps(
         pos.latitude,
         pos.longitude,
         destLat,
         destLng,
       );
 
+      _steps = routeData['steps'] as List<Map<String, dynamic>>;
       _currentStepIndex = 0;
-      _lastDistance = null;
+      
 
       if (_steps.isNotEmpty) {
         await _ttsService.speak(
@@ -174,6 +214,58 @@ class NavigationController {
     }
   }
 
+/// Returns the shortest distance (in meters) from the user's current
+  /// position to the nearest segment of the planned route polyline.
+  double _distanceToRoute(Position pos) {
+    if (_polyline.length < 2) return 0;
+
+    double minDistance = double.infinity;
+
+    for (int i = 0; i < _polyline.length - 1; i++) {
+      final a = _polyline[i];
+      final b = _polyline[i + 1];
+
+      final distance = _distanceToSegment(
+        pos.latitude,
+        pos.longitude,
+        a['lat']!,
+        a['lng']!,
+        b['lat']!,
+        b['lng']!,
+      );
+
+      if (distance < minDistance) minDistance = distance;
+    }
+
+    return minDistance;
+  }
+
+  /// Approximates the distance from point P to the segment AB using
+  /// simple linear interpolation, then measures with Geolocator's
+  /// accurate great-circle distance formula.
+  double _distanceToSegment(
+    double pLat, double pLng,
+    double aLat, double aLng,
+    double bLat, double bLng,
+  ) {
+    final dLat = bLat - aLat;
+    final dLng = bLng - aLng;
+
+    if (dLat == 0 && dLng == 0) {
+      return Geolocator.distanceBetween(pLat, pLng, aLat, aLng);
+    }
+
+    final t = (((pLat - aLat) * dLat) + ((pLng - aLng) * dLng)) /
+        ((dLat * dLat) + (dLng * dLng));
+
+    final clampedT = t.clamp(0.0, 1.0);
+
+    final closestLat = aLat + clampedT * dLat;
+    final closestLng = aLng + clampedT * dLng;
+
+    return Geolocator.distanceBetween(pLat, pLng, closestLat, closestLng);
+  }
+
   /// Stops navigation and cancels location tracking
   void stopNavigation() {
     _positionStream?.cancel();
@@ -181,7 +273,7 @@ class NavigationController {
   }
 
   /// Speaks all navigation steps once, useful for demos/testing without physically walking.
-  Future<void> previewRoute(String destinationKeyword) async {
+ Future<void> previewRoute(String destinationKeyword) async {
     try {
       final currentPosition = await _locationService.getCurrentLocation();
 
@@ -195,12 +287,14 @@ class NavigationController {
       final destLng = place['lng'] as double;
       final placeName = place['name'] as String;
 
-      final steps = await _directionsService.getWalkingSteps(
+      final routeData = await _directionsService.getWalkingSteps(
         currentPosition.latitude,
         currentPosition.longitude,
         destLat,
         destLng,
       );
+
+      final steps = routeData['steps'] as List<Map<String, dynamic>>;
 
       await _ttsService.speak("Route to $placeName has ${steps.length} steps.");
       for (final step in steps) {

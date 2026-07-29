@@ -51,8 +51,8 @@ class SpeechService {
         cancelOnError: false,
         listenMode: stt.ListenMode.confirmation,
       ),
-      listenFor: const Duration(seconds: 8),
-      pauseFor: const Duration(seconds: 4),
+      listenFor: const Duration(seconds: 15),
+      pauseFor: const Duration(seconds: 6),
     );
 
     // ignore: avoid_print

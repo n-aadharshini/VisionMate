@@ -44,7 +44,7 @@ class DirectionsService {
   }
 
   /// Gets walking directions between two coordinates using free OSRM routing.
-  Future<List<Map<String, dynamic>>> getWalkingSteps(
+  Future<Map<String, dynamic>> getWalkingSteps(
     double originLat,
     double originLng,
     double destLat,
@@ -53,7 +53,7 @@ class DirectionsService {
     final url = Uri.parse(
       'https://router.project-osrm.org/route/v1/foot/'
       '$originLng,$originLat;$destLng,$destLat'
-      '?overview=false&steps=true',
+      '?overview=full&geometries=geojson&steps=true',
     );
 
     final response = await http.get(url);
@@ -63,9 +63,13 @@ class DirectionsService {
       throw Exception('Could not calculate a walking route');
     }
 
-    final legs = data['routes'][0]['legs'][0]['steps'] as List;
+    final route = data['routes'][0];
+    final totalDistanceMeters = (route['distance'] as num).toDouble();
+    final totalDurationSeconds = (route['duration'] as num).toDouble();
 
-    return legs.map((step) {
+    final legs = route['legs'][0]['steps'] as List;
+
+    final steps = legs.map((step) {
       final maneuver = step['maneuver'];
       final instruction = _buildInstruction(
         maneuver['type'] as String,
@@ -79,6 +83,18 @@ class DirectionsService {
         'lng': maneuver['location'][0] as double,
       };
     }).toList();
+
+    final geometry = route['geometry']['coordinates'] as List;
+    final polyline = geometry.map((point) {
+      return {'lat': (point[1] as num).toDouble(), 'lng': (point[0] as num).toDouble()};
+    }).toList();
+
+    return {
+      'steps': steps,
+      'distanceMeters': totalDistanceMeters,
+      'durationSeconds': totalDurationSeconds,
+      'polyline': polyline,
+    };
   }
 
   /// OSRM gives raw maneuver types instead of ready sentences like Google does,
