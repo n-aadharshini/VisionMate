@@ -41,6 +41,7 @@ dependencies:
   flutter_tts: ^4.0.2
   flutter_dotenv: ^5.1.0
   permission_handler: ^11.3.1
+  geolocator: ^13.0.1
   # --- Cloud TTS/STT playback + capture (Groq) ---
   just_audio: ^0.9.40
   path_provider: ^2.1.4
@@ -49,7 +50,6 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
   # activated in the `analysis_options.yaml` file located at the root of your
@@ -70,6 +70,8 @@ flutter:
   # To add assets to your application, add an assets section, like this:
   assets:
     - .env
+    - assets/bus_data/stops.json
+    - assets/bus_data/routes.json
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

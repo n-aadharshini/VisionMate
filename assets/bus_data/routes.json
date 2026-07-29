@@ -1,0 +1,10 @@
+[
+  {
+    "routeNumber": "21C",
+    "orderedStopIds": ["stop_kellys", "stop_agni"]
+  },
+  {
+    "routeNumber": "5M",
+    "orderedStopIds": ["stop_kellys", "stop_central"]
+  }
+]

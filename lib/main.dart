@@ -20,8 +20,7 @@ class VisionMateApp extends StatefulWidget {
   State<VisionMateApp> createState() => _VisionMateAppState();
 }
 
-class _VisionMateAppState extends State<VisionMateApp>
-    with WidgetsBindingObserver {
+class _VisionMateAppState extends State<VisionMateApp> {
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   late final ConversationController _conversationController;
   late final StreamSubscription<NavigationRequest> _navigationSubscription;
@@ -29,7 +28,6 @@ class _VisionMateAppState extends State<VisionMateApp>
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     // A real error callback, instead of none: previously the controller
     // was constructed with no onError, so STT/Groq/TTS/channel failures
     // had nowhere to go and were effectively silent in production. This
@@ -58,27 +56,7 @@ class _VisionMateAppState extends State<VisionMateApp>
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    switch (state) {
-      case AppLifecycleState.paused:
-      case AppLifecycleState.inactive:
-      case AppLifecycleState.detached:
-        // Stop the mic and cancel any in-flight turn the moment the app
-        // stops being in the foreground — without this, a PTT session (or
-        // a Groq/TTS call still in flight) could keep running while
-        // backgrounded, and a stale completion could later flip state or
-        // speak unexpectedly once nothing is on screen to show it.
-        unawaited(_conversationController.handleAppBackgrounded());
-      case AppLifecycleState.resumed:
-        _conversationController.handleAppResumed();
-      case AppLifecycleState.hidden:
-        break;
-    }
-  }
-
-  @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     _navigationSubscription.cancel();
     _conversationController.dispose();
     super.dispose();

@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import '../../features/flow/flow_screens.dart';
 import '../../features/main/main_screens.dart';
+import '../../features/travel/state_machine/screens/navigate_screen.dart'
+    as travel;
+import '../../features/travel/state_machine/screens/travel_screen.dart'
+    as travel;
 
 abstract final class AppRoutes {
   static const splash = '/';
@@ -14,9 +18,9 @@ abstract final class AppRoutes {
       '/speak' => const SpeakScreen(),
       '/processing' => const ProcessingScreen(),
       '/read' => const ReadScreen(),
-      '/navigate' => const NavigateScreen(),
+      '/navigate' => const travel.NavigateScreen(),
       '/indoor-navigation' => const IndoorNavigationScreen(),
-      '/travel' => const TravelScreen(),
+      '/travel' => const travel.TravelScreen(),
       '/help' => const HelpScreen(),
       '/sos' => const SosScreen(),
       '/profile' => const ProfileScreen(),

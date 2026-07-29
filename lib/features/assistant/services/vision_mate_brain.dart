@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -28,71 +27,6 @@ class VisionMateBrain {
       return await classifyWithLlm(transcribedText);
     } catch (_) {
       return _keywordIntentClassifier.classify(transcribedText);
-    }
-  }
-
-  /// Plain-text, token-by-token streaming reply for the always-on
-  /// conversation loop (Step 1). This is intentionally NOT the JSON
-  /// intent classifier above — streaming a JSON object token-by-token
-  /// and trying to pull out the "reply" field mid-parse is fragile, so
-  /// Step 1 uses a separate plain-text companion call to prove out the
-  /// "feels alive" streaming voice loop.
-  ///
-  /// Intent-aware routing (navigate/read/travel/help) on top of this
-  /// streaming path is Step 2 per the build plan — this method purely
-  /// produces the words VisionMate says back to the user.
-  Stream<String> streamCompanionReply(String transcribedText) async* {
-    final apiKey = dotenv.env['GROQ_API_KEY'];
-    if (apiKey == null || apiKey.trim().isEmpty) {
-      throw StateError('GROQ_API_KEY is not configured.');
-    }
-
-    final request = http.Request('POST', Uri.parse(_endpoint))
-      ..headers.addAll({
-        'Authorization': 'Bearer $apiKey',
-        'Content-Type': 'application/json',
-      })
-      ..body = jsonEncode({
-        'model': 'llama-3.1-8b-instant',
-        'stream': true,
-        'temperature': 0.6,
-        'messages': [
-          {'role': 'system', 'content': _companionSystemPrompt},
-          {'role': 'user', 'content': transcribedText},
-        ],
-      });
-
-    final streamedResponse = await _client.send(request).timeout(_timeout);
-    if (streamedResponse.statusCode < 200 ||
-        streamedResponse.statusCode >= 300) {
-      throw HttpException(
-        'Groq stream request failed with status ${streamedResponse.statusCode}.',
-      );
-    }
-
-    final lines = streamedResponse.stream
-        .transform(utf8.decoder)
-        .transform(const LineSplitter());
-
-    await for (final line in lines) {
-      if (!line.startsWith('data: ')) continue;
-      final payload = line.substring(6).trim();
-      if (payload.isEmpty || payload == '[DONE]') continue;
-
-      try {
-        final json = jsonDecode(payload) as Map<String, dynamic>;
-        final choices = json['choices'] as List<dynamic>?;
-        final delta = choices?.isNotEmpty == true
-            ? (choices!.first as Map<String, dynamic>)['delta']
-                  as Map<String, dynamic>?
-            : null;
-        final token = delta?['content'] as String?;
-        if (token != null && token.isNotEmpty) {
-          yield token;
-        }
-      } catch (_) {
-        // Ignore malformed/keep-alive lines rather than killing the stream.
-      }
     }
   }
 
@@ -219,21 +153,4 @@ Examples:
 
 "i'm feeling a bit anxious about going out alone" ->
 {"intent":"chat","destination":null,"reply":"That's completely understandable. I'm right here with you the whole way — just tell me where you want to go and I'll guide you.","confidence":0.8}
-''';
-
-/// System prompt for the plain-text streaming companion loop (Step 1).
-/// Same warmth/brevity rules as the classifier prompt above, but no JSON —
-/// this just talks.
-const _companionSystemPrompt = '''
-You are Mate, the voice companion inside VisionMate, an assistive app for blind
-and visually impaired users in India. You are warm, calm, and genuinely helpful —
-like a trusted friend who happens to also be great with directions, reading text,
-and knowing when someone needs real help.
-
-Reply directly in plain spoken language — no markdown, no lists, no JSON.
-This gets read aloud via text-to-speech immediately as you write it, so:
-- Keep it conversational and brief — 1-3 short sentences unless asked for more.
-- Sound like a person, not a system.
-- Never make up facts. If you don't know something, say so honestly and briefly.
-- If the user sounds distressed or unsafe, be calm and reassuring, not alarming.
 ''';

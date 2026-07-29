@@ -1,0 +1,23 @@
+[
+  {
+    "id": "stop_kellys",
+    "name": "Kellys Bus Stand",
+    "latitude": 13.0827,
+    "longitude": 80.2707,
+    "routes": ["21C", "5M"]
+  },
+  {
+    "id": "stop_agni",
+    "name": "Agni College Stop",
+    "latitude": 13.0475,
+    "longitude": 80.2219,
+    "routes": ["21C"]
+  },
+  {
+    "id": "stop_central",
+    "name": "Chennai Central",
+    "latitude": 13.0827,
+    "longitude": 80.2750,
+    "routes": ["5M"]
+  }
+]

@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 
 import '../models/chat_message.dart';
 import '../models/intent_type.dart';
@@ -14,36 +14,30 @@ enum ConversationState { idle, listening, processing, speaking }
 
 /// Orchestrates the single push-to-talk (PTT) conversation flow:
 ///
-///   idle --(press)--> listening --(release)--> processing --> speaking --> idle
+///   idle -> (press)   -> listening
+///        -> (release) -> processing -> speaking -> idle
 ///
-/// PTT is triggered either by the hardware Volume Up button (via
-/// [_volumeButtonChannel]) or the in-app mic control — both call
-/// [beginPushToTalk] / [endPushToTalk]. There is intentionally exactly one
-/// capture flow in this controller: an earlier always-on/continuous
-/// listening loop has been removed so PTT and continuous listening can no
-/// longer run concurrently and fight over the microphone.
+/// This is now the ONLY capture flow in the app. The previous always-on
+/// `start()` / `_mainLoop()` continuous-listening loop has been removed —
+/// it was reachable from `ListeningScreen` at the same time as PTT and the
+/// two fought over the same native speech-recognizer session (a confirmed
+/// bug). Both the hardware Volume Up button and the in-app mic call the
+/// same [beginPushToTalk] / [endPushToTalk] pair.
 ///
-/// Every PTT turn is tagged with a monotonically increasing [_turnId].
-/// Async work (STT stop, Groq classification, TTS playback, navigation)
-/// checks its captured turn id against the current one before touching
-/// state — so a stale completion from a turn that's since been cancelled
-/// (app backgrounded, user started a new turn, controller disposed) is
-/// discarded instead of corrupting the UI.
+/// Race safety: a monotonically increasing [_generation] identifies each
+/// PTT turn. Every async STT/Groq/TTS step checks its captured generation
+/// against the current one before touching state, so a stale callback
+/// from a turn that was cancelled (app backgrounded mid-reply, a new press
+/// started before the previous turn's async work landed, etc.) can never
+/// resurrect state that has already moved on.
 ///
-/// Barge-in note: an earlier version of this controller tried to start the
-/// *next* listening session concurrently with the current turn's
-/// processing/speaking, so a partial transcript during playback could cut
-/// TTS off immediately. `speech_to_text` only supports one active session
-/// on its underlying recognizer, though — starting a second `listen()`
-/// before the first has fully torn down leaves the plugin unable to start
-/// any further session. This version is strictly sequential (one mic
-/// session per turn) and exposes [interruptSpeaking] instead: call it
-/// (e.g. from a tap on the mic orb) to cut the assistant off and return to
-/// idle immediately. True hands-free barge-in (detecting the user's voice
-/// while the assistant is mid-sentence) needs either a VAD-based approach
-/// or careful session handoff and is a good candidate to revisit once the
-/// core loop is solid — flagging rather than re-attempting it silently.
-class ConversationSessionController extends ChangeNotifier {
+/// Lifecycle: this controller mixes in [WidgetsBindingObserver] and
+/// registers/unregisters itself in its constructor/[dispose] — when the
+/// app is paused, inactive, detached, or hidden, any active PTT turn is
+/// cancelled and the mic/TTS are stopped immediately, rather than leaving
+/// a capture running in the background.
+class ConversationSessionController extends ChangeNotifier
+    with WidgetsBindingObserver {
   ConversationSessionController({
     SpeechService? speechService,
     TtsService? ttsService,
@@ -54,13 +48,10 @@ class ConversationSessionController extends ChangeNotifier {
        _ttsService = ttsService ?? TtsService(onError: onError) {
     // If a ttsService instance was passed in explicitly, still wire up
     // error reporting so silent playback failures surface to the caller.
-    _ttsService.onError ??= onError;
+    _ttsService.onError ??= _reportError;
     _ttsService.onPlaybackStarted ??= _onTtsPlaybackStarted;
-    // Registered once here, at controller construction, and explicitly
-    // cleared in dispose() — previously the handler was never cleared, so
-    // a platform event arriving after teardown could reach a disposed
-    // controller.
     _volumeButtonChannel.setMethodCallHandler(_handleVolumeButtonEvent);
+    WidgetsBinding.instance.addObserver(this);
   }
 
   static const _volumeButtonChannel = MethodChannel('visionmate/volume_button');
@@ -70,31 +61,22 @@ class ConversationSessionController extends ChangeNotifier {
   final VisionMateBrain _brain;
   final StreamController<NavigationRequest> _navigationRequests =
       StreamController<NavigationRequest>.broadcast();
+  final StreamController<Object> _errors = StreamController<Object>.broadcast();
 
   /// The root app listens here and performs intent-driven route changes.
   Stream<NavigationRequest> get navigationRequests =>
       _navigationRequests.stream;
 
+  /// Broadcast stream of every error this controller reports (mic init,
+  /// STT, Groq, TTS, or the platform channel). UI code can subscribe to
+  /// show error banners without polling [lastErrorMessage] off of
+  /// [notifyListeners] — e.g. SpeakScreen listens here directly.
+  Stream<Object> get errors => _errors.stream;
+
   /// Surfaced for UI feedback (e.g. a toast or subtle earcon) — never
   /// throws past this controller. Also wired into [TtsService] so TTS
   /// failures (e.g. a missing GROQ_API_KEY) are no longer silent.
   final void Function(Object error)? onError;
-
-  final StreamController<Object> _errorsController =
-      StreamController<Object>.broadcast();
-
-  /// Every STT/Groq/TTS/channel error also flows through here, in addition
-  /// to [onError]. [onError] is a single callback fixed at construction
-  /// (set once in main.dart); this stream lets *any* number of widgets —
-  /// e.g. the screen currently showing the conversation — subscribe and
-  /// display the error themselves, which a single fixed callback can't do
-  /// on its own.
-  Stream<Object> get errors => _errorsController.stream;
-
-  void _reportError(Object error) {
-    onError?.call(error);
-    if (!_disposed) _errorsController.add(error);
-  }
 
   ConversationState _state = ConversationState.idle;
   ConversationState get state => _state;
@@ -115,41 +97,58 @@ class ConversationSessionController extends ChangeNotifier {
 
   String _finalTranscript = '';
   String get finalTranscript => _finalTranscript;
+  DateTime? _recordingStoppedAt;
   DateTime? _replyReceivedAt;
+
+  /// The most recent error surfaced anywhere in this controller (mic init,
+  /// STT, Groq, TTS, or the platform channel), as a display-ready string.
+  /// UI code (e.g. SpeakScreen) can read this after any [notifyListeners]
+  /// call to show it, instead of relying on [onError] alone.
+  String? _lastErrorMessage;
+  String? get lastErrorMessage => _lastErrorMessage;
 
   bool _isActive = false;
   bool get isActive => _isActive;
 
+  // --- PTT race-safety state ---
   bool _pushToTalkHeld = false;
-
-  /// True from the moment a press is accepted until [initialize] and the
-  /// native `startListening` call have both completed. This is a
-  /// *synchronous* guard — set before any `await` — so two rapid presses
-  /// can't both pass the "am I already starting?" check before the first
-  /// one has had a chance to record that it's starting.
-  bool _pushToTalkStarting = false;
-
-  /// Set when [endPushToTalk] is called while [_pushToTalkStarting] is
-  /// still true (release-before-start-finished). [beginPushToTalk] checks
-  /// this once it's safe to do so and immediately ends the turn itself,
-  /// instead of leaving the mic open with no matching release.
+  // True from the moment a press is accepted until initialize() +
+  // startListening() have both completed. A synchronous guard set before
+  // any awaiting happens, so two rapid presses can't both pass the idle
+  // check before the first one has had a chance to flip state.
+  bool _isStarting = false;
+  // Set when a release arrives while `_isStarting` is still true — the
+  // release is honored as soon as the in-flight start sequence finishes,
+  // instead of being silently dropped (which used to leave the mic open
+  // with no matching release).
   bool _pendingRelease = false;
-
-  /// Bumped at the start of every PTT turn and whenever a turn is
-  /// cancelled. Async continuations compare their captured id against the
-  /// current value before applying state changes.
-  int _turnId = 0;
+  // Cached after the first successful mic/STT permission + init, so
+  // every subsequent press doesn't pay the native re-initialization cost.
+  bool _micInitialized = false;
+  // Bumped on every new PTT press and on every cancellation. Async
+  // callbacks/awaits captured a generation at the time they started and
+  // check it against this before mutating state — see class doc.
+  int _generation = 0;
 
   final List<ChatMessage> _messages = [];
   List<ChatMessage> get messages => List.unmodifiable(_messages);
 
+  /// Shared speech entry point for feature controllers such as Travel.
+  /// It deliberately reuses the app-wide TTS instance instead of letting a
+  /// feature construct a competing player or queue.
+  Future<void> speak(String text) => _ttsService.speak(text);
+
   /// Prepares microphone permission without starting a capture session.
+  /// Safe to call repeatedly — the actual native init only happens once.
   Future<bool> initialize() async {
+    if (_micInitialized) return true;
     final ok = await _speechService.initialize();
     if (!ok) {
       _reportError(StateError('Microphone permission was not granted.'));
+      return false;
     }
-    return ok;
+    _micInitialized = true;
+    return true;
   }
 
   Future<void> _handleVolumeButtonEvent(MethodCall call) async {
@@ -164,44 +163,42 @@ class ConversationSessionController extends ChangeNotifier {
   }
 
   /// Starts the same foreground PTT capture used by the in-app mic control.
+  /// Returns false (and leaves state untouched) if a press is already in
+  /// flight, already held, mic permission fails, or the controller isn't
+  /// idle.
   Future<bool> beginPushToTalk() async {
-    if (_pushToTalkHeld ||
-        _pushToTalkStarting ||
-        _state != ConversationState.idle) {
+    if (_isStarting || _pushToTalkHeld) {
       debugPrint(
-        '[PTT] ignored duplicate press (held=$_pushToTalkHeld, '
-        'starting=$_pushToTalkStarting, state=$_state)',
+        '[PTT PRESS] ignored — already ${_isStarting ? 'starting' : 'held'}',
       );
       return false;
     }
+    if (_state != ConversationState.idle) {
+      debugPrint('[PTT PRESS] ignored — state is ${_state.name}, not idle');
+      return false;
+    }
 
-    _pushToTalkStarting = true;
+    // Set synchronously, before any `await`, so a second rapid press
+    // cannot also pass the checks above while this one is still setting up.
+    _isStarting = true;
     _pendingRelease = false;
-    final turnId = ++_turnId;
-    debugPrint('[PTT PRESS] ${DateTime.now().toIso8601String()} turn=$turnId');
+    final generation = ++_generation;
+    debugPrint('[PTT PRESS] gen=$generation');
 
-    bool ok;
-    try {
-      ok = await initialize();
-    } catch (error) {
-      _pushToTalkStarting = false;
-      _reportError(error);
+    final micOk = await initialize();
+    if (generation != _generation) {
+      // Cancelled while awaiting permission/init (e.g. app backgrounded).
+      _isStarting = false;
       return false;
     }
-
-    if (_disposed || turnId != _turnId) {
-      // Superseded (stop()/dispose()/a new turn) while awaiting initialize().
-      debugPrint('[PTT] turn=$turnId superseded during initialize()');
-      _pushToTalkStarting = false;
-      return false;
-    }
-    if (!ok) {
-      _pushToTalkStarting = false;
+    if (!micOk) {
+      _isStarting = false;
       return false;
     }
 
     _pushToTalkHeld = true;
     _isActive = true;
+    _isStarting = false;
     _partialTranscript = '';
     _finalTranscript = '';
     _setState(ConversationState.listening);
@@ -210,7 +207,7 @@ class ConversationSessionController extends ChangeNotifier {
       await _speechService.startListening(
         (_) {},
         onPartialResult: (partial) {
-          if (turnId != _turnId) return; // stale session, ignore
+          if (generation != _generation) return;
           _partialTranscript = partial;
           _upsertPartialUserBubble(partial);
           _safeNotify();
@@ -218,33 +215,20 @@ class ConversationSessionController extends ChangeNotifier {
         onRecordingStopped: _onRecordingStopped,
       );
     } catch (error) {
-      _pushToTalkHeld = false;
-      _isActive = false;
-      _pushToTalkStarting = false;
-      _setState(ConversationState.idle);
+      if (generation == _generation) {
+        _pushToTalkHeld = false;
+        _isActive = false;
+        _setState(ConversationState.idle);
+      }
       _reportError(error);
       return false;
     }
 
-    _pushToTalkStarting = false;
-
-    if (turnId != _turnId) {
-      // Cancelled while startListening() was in flight — whatever
-      // cancelled us already reset _pushToTalkHeld/state, so just bail.
-      debugPrint('[PTT] turn=$turnId superseded during startListening()');
-      return false;
-    }
-
-    if (_pendingRelease) {
-      // Volume Up was released before we even finished starting — this is
-      // the press/release race: without this check, endPushToTalk() would
-      // have already returned early (because _pushToTalkHeld was still
-      // false at the time), leaving the mic listening with no matching
-      // release. Handle it now instead.
+    // A release that arrived while the above was still in flight is
+    // honored now, rather than being lost with the mic left open.
+    if (_pendingRelease && generation == _generation) {
       _pendingRelease = false;
-      debugPrint(
-        '[PTT] turn=$turnId handling release deferred during start-up',
-      );
+      debugPrint('[PTT RELEASE] applying release queued during start');
       unawaited(endPushToTalk());
     }
     return true;
@@ -253,115 +237,102 @@ class ConversationSessionController extends ChangeNotifier {
   /// Ends the PTT capture immediately, locks its live transcript, then runs
   /// the existing Groq intent/reply pipeline. Nothing listens while it runs.
   Future<void> endPushToTalk() async {
-    if (_pushToTalkStarting) {
-      // Release arrived before begin's async initialize()/startListening()
-      // finished. Defer it — beginPushToTalk() checks _pendingRelease once
-      // it's safe to touch state again.
+    if (_isStarting) {
+      // beginPushToTalk() hasn't finished its async setup yet — record
+      // the release and let beginPushToTalk() apply it the moment it's
+      // safe to, instead of dropping it (the confirmed press/release race).
+      debugPrint('[PTT RELEASE] arrived mid-start — queued');
       _pendingRelease = true;
-      debugPrint('[PTT RELEASE] deferred — still starting up');
       return;
     }
     if (!_pushToTalkHeld || _state != ConversationState.listening) {
       debugPrint(
-        '[PTT] ignored release (held=$_pushToTalkHeld, state=$_state)',
+        '[PTT RELEASE] ignored — not in an active PTT session '
+        '(state=${_state.name})',
       );
       return;
     }
 
-    final turnId = _turnId;
-    debugPrint(
-      '[PTT RELEASE] ${DateTime.now().toIso8601String()} turn=$turnId',
-    );
+    final generation = _generation;
     _pushToTalkHeld = false;
+    debugPrint('[PTT RELEASE] gen=$generation');
 
-    var transcript = '';
     try {
-      transcript = (await _speechService.stopListeningAndGetTranscript())
+      final transcript = (await _speechService.stopListeningAndGetTranscript())
           .trim();
+      if (generation != _generation) return; // superseded mid-stop
+
+      _finalTranscript = transcript;
+      _partialTranscript = '';
+      debugPrint(
+        '[LISTEN END] ${DateTime.now().toIso8601String()} text="$transcript"',
+      );
+      _safeNotify();
+
+      if (transcript.isEmpty) return;
+      await _handleTurn(transcript, generation);
     } catch (error) {
       _reportError(error);
     } finally {
-      // Always settle these, even if stopListeningAndGetTranscript()
-      // throws — previously a throw here left the controller stuck in
-      // `listening` with _pushToTalkHeld already false, an inconsistent
-      // combination that blocked any further presses.
+      // Always clears held/active and returns to idle, even if STT or the
+      // turn pipeline threw — the confirmed "stuck in listening" bug.
       _isActive = false;
-      _finalTranscript = transcript;
-      _partialTranscript = '';
-    }
-    debugPrint(
-      '[LISTEN END] ${DateTime.now().toIso8601String()} text="$transcript"',
-    );
-    _safeNotify();
-
-    if (transcript.isEmpty) {
-      if (turnId == _turnId) _setState(ConversationState.idle);
-      return;
-    }
-
-    try {
-      await _handleTurn(transcript, turnId);
-    } finally {
-      if (!_disposed && turnId == _turnId) _setState(ConversationState.idle);
+      if (!_disposed && generation == _generation) {
+        _setState(ConversationState.idle);
+      }
     }
   }
 
-  /// Cuts the assistant off mid-reply and returns to idle. This is the
-  /// practical stand-in for automatic barge-in in this version — wire it
-  /// to a tap on the mic orb, or call it from anywhere else a manual
-  /// interrupt is wanted.
+  /// Cuts the assistant off mid-reply and returns to listening. This is
+  /// the practical stand-in for automatic barge-in in this version — wire
+  /// it to a tap on the mic orb, or call it from anywhere else you want a
+  /// manual interrupt.
   Future<void> interruptSpeaking() async {
     if (_state != ConversationState.speaking) return;
-    _turnId++; // discard whatever's left of the current turn
     await _ttsService.stop();
+  }
+
+  /// General-purpose cancel: stops any active PTT capture or in-flight
+  /// turn and returns to idle. Safe to call from any state.
+  Future<void> stop() async {
+    _cancelActiveTurn(reason: 'stop_called');
+  }
+
+  void _cancelActiveTurn({required String reason}) {
+    debugPrint('[STATE] cancelling active turn ($reason), was ${_state.name}');
+    _generation++; // invalidates any in-flight callbacks/awaits
+    _pushToTalkHeld = false;
+    _isStarting = false;
+    _pendingRelease = false;
+    _isActive = false;
+    unawaited(_speechService.stopListeningAndGetTranscript());
+    unawaited(_ttsService.stop());
     if (!_disposed) _setState(ConversationState.idle);
   }
 
-  /// Cancels whatever PTT turn is currently in flight — bumps the turn id
-  /// so any in-flight Groq/TTS/navigation completion for it is discarded,
-  /// stops the mic and TTS, clears PTT flags, and returns to idle. Used by
-  /// [stop] and by app-lifecycle handling (backgrounding).
-  Future<void> cancelCurrentTurn() async {
-    _turnId++;
-    _pushToTalkHeld = false;
-    _pushToTalkStarting = false;
-    _pendingRelease = false;
-    _isActive = false;
-    await _speechService.stopListening();
-    await _ttsService.stop();
-    if (_disposed) return;
-    _setState(ConversationState.idle);
-  }
-
-  /// Public stop — cancels any in-flight turn and returns to idle. Safe to
-  /// call at any point, including when nothing is in progress.
-  Future<void> stop() => cancelCurrentTurn();
-
-  /// Call from the app's lifecycle observer when the app is paused,
-  /// inactive, or detached. Stops the mic immediately and cancels whatever
-  /// PTT turn is in flight, so a stale Groq/TTS completion that arrives
-  /// after backgrounding can't flip state or speak unexpectedly.
-  Future<void> handleAppBackgrounded() async {
-    if (_state == ConversationState.idle && !_isActive) return;
-    debugPrint('[LIFECYCLE] app backgrounded — cancelling current turn');
-    await cancelCurrentTurn();
-  }
-
-  /// Call from the app's lifecycle observer on resume. PTT never
-  /// auto-restarts on its own, so this just makes sure state is
-  /// consistent (idle, mic off) after whatever happened while
-  /// backgrounded, rather than leaving a stale non-idle state on screen.
-  void handleAppResumed() {
-    if (_disposed) return;
-    if (_state != ConversationState.idle) {
-      debugPrint('[LIFECYCLE] app resumed — resetting to idle');
-      _setState(ConversationState.idle);
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    debugPrint('[STATE] app lifecycle -> $state');
+    switch (state) {
+      case AppLifecycleState.paused:
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.detached:
+      case AppLifecycleState.hidden:
+        // Don't let the mic, an in-flight Groq call, or TTS keep running
+        // once the app isn't in the foreground — there was previously no
+        // lifecycle handling at all, so backgrounding mid-turn could leave
+        // stale work that resolves later and clobbers state.
+        if (_state != ConversationState.idle || _pushToTalkHeld) {
+          _cancelActiveTurn(reason: 'app_lifecycle_$state');
+        }
+      case AppLifecycleState.resumed:
+        break;
     }
   }
 
-  Future<void> _handleTurn(String transcript, int turnId) async {
+  Future<void> _handleTurn(String transcript, int generation) async {
     _finalizeUserMessage(transcript);
-    if (turnId != _turnId) return;
+    if (generation != _generation) return;
     _setState(ConversationState.processing);
 
     VisionMateResponse response;
@@ -381,17 +352,7 @@ class ConversationSessionController extends ChangeNotifier {
         source: 'controller-fallback',
       );
     }
-
-    if (_disposed || turnId != _turnId) {
-      // The app was backgrounded/stopped, or a new turn started, while
-      // Groq was still in flight. Discard the stale reply rather than
-      // flipping into `speaking` or saying something out loud for a turn
-      // that's no longer current.
-      debugPrint(
-        '[TURN] discarding stale Groq reply for turn=$turnId (current=$_turnId)',
-      );
-      return;
-    }
+    if (generation != _generation) return; // cancelled while Groq was in flight
 
     _replyReceivedAt = DateTime.now();
     debugPrint(
@@ -409,13 +370,13 @@ class ConversationSessionController extends ChangeNotifier {
     _setState(ConversationState.speaking);
     _safeNotify();
     await _speechService.stopListening();
+
     debugPrint(
       '[TTS START] ${DateTime.now().toIso8601String()} text="${response.reply}"',
     );
     await _ttsService.speak(response.reply);
     debugPrint('[TTS END] ${DateTime.now().toIso8601String()}');
-
-    if (_disposed || turnId != _turnId) return; // cancelled mid-speech
+    if (generation != _generation) return; // cancelled mid-speech
 
     if (response.confidence >= 0.5) {
       final request = _navigationFor(response);
@@ -467,6 +428,18 @@ class ConversationSessionController extends ChangeNotifier {
     _safeNotify();
   }
 
+  /// Records the error for UI display and forwards it to the caller's
+  /// [onError], if any. Every error path in this controller goes through
+  /// here now instead of calling `onError?.call(...)` directly, so
+  /// `lastErrorMessage` is always in sync with what's been logged.
+  void _reportError(Object error) {
+    _lastErrorMessage = error.toString();
+    debugPrint('[APP ERROR] $error');
+    onError?.call(error);
+    if (!_disposed && !_errors.isClosed) _errors.add(error);
+    _safeNotify();
+  }
+
   void _safeNotify() {
     if (_disposed) return;
     notifyListeners();
@@ -474,9 +447,7 @@ class ConversationSessionController extends ChangeNotifier {
 
   void _setState(ConversationState next) {
     if (_disposed) return;
-    if (_state != next) {
-      debugPrint('[STATE] ${_state.name} -> ${next.name}');
-    }
+    debugPrint('[STATE] ${_state.name} -> ${next.name}');
     _state = next;
     notifyListeners();
   }
@@ -484,21 +455,26 @@ class ConversationSessionController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _generation++; // invalidate anything still in flight
     _isActive = false;
-    // Clear the platform handler explicitly so a late Volume Up event
-    // can't reach this controller after teardown.
+    WidgetsBinding.instance.removeObserver(this);
     _volumeButtonChannel.setMethodCallHandler(null);
     unawaited(_speechService.stopListening());
     unawaited(_ttsService.dispose());
     unawaited(_navigationRequests.close());
-    unawaited(_errorsController.close());
+    unawaited(_errors.close());
     super.dispose();
   }
 
   void _onRecordingStopped() {
-    debugPrint('VM_TIMING mic_stopped ${DateTime.now().toIso8601String()}');
-    // Deliberately no state change here — see _handleTurn / endPushToTalk
-    // for where `processing`/`speaking` transitions actually happen.
+    _recordingStoppedAt = DateTime.now();
+    debugPrint(
+      'VM_TIMING mic_stopped ${_recordingStoppedAt!.toIso8601String()}',
+    );
+    // Deliberately no state change here — this fires on every session end
+    // (including one superseded by cancellation), and the transition to
+    // `processing` only happens in `_handleTurn`, once there's an actual
+    // non-empty transcript to act on.
   }
 
   void _onTtsPlaybackStarted() {

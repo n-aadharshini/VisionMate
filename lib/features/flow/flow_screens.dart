@@ -564,7 +564,7 @@ class _EmptyChatHint extends StatelessWidget {
     child: Padding(
       padding: EdgeInsets.symmetric(horizontal: 36),
       child: Text(
-        'Just start talking — no tap, no wake word. Ask me to read something, get directions, or just say hello.',
+        'Hold the mic button or Volume Up, then tell me what you need. I can read something, get directions, or just chat.',
         textAlign: TextAlign.center,
         style: TextStyle(color: AppColors.muted),
       ),
