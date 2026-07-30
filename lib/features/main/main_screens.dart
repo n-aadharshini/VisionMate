@@ -1,16 +1,113 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/services/app_haptics.dart';
 import '../../core/widgets/app_ui.dart';
-import '../flow/flow_screens.dart';
+import '../../core/widgets/mic_orb.dart';
+import '../../core/widgets/quick_actions_sheet.dart';
+import '../../core/widgets/vision_mate_scaffold.dart';
+import '../assistant/services/conversation_controller.dart';
 
-/// Home is a thin wrapper around SpeakScreen, which owns the active
-/// push-to-talk conversation experience.
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context) => const SpeakScreen();
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  ConversationController? _controller;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _controller = ConversationControllerScope.of(context);
+  }
+
+  void _showQuickActions() {
+    AppHaptics.light();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black54,
+      builder: (_) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+        child: QuickActionsSheet(),
+      ),
+    );
+  }
+
+  void _onOrbTap() {
+    final c = _controller;
+    if (c == null) return;
+    if (c.state != ConversationState.idle) return;
+    c.beginPushToTalk();
+  }
+
+  void _onOrbLongPress() {
+    final c = _controller;
+    if (c == null) return;
+    c.speak('SOS activated');
+    Navigator.pushNamed(context, '/sos');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = _controller;
+    final isActive = c != null && c.state != ConversationState.idle;
+
+    return VisionMateScaffold(
+      padded: false,
+      body: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onDoubleTap: () {
+          AppHaptics.light();
+        },
+        onVerticalDragEnd: (details) {
+          if (details.primaryVelocity != null &&
+              details.primaryVelocity! < -200) {
+            _showQuickActions();
+          }
+        },
+        child: Stack(
+          children: [
+            const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'VisionMate',
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    'Tap the mic or say a command',
+                    style: TextStyle(color: AppColors.muted, fontSize: 14),
+                  ),
+                ],
+              ),
+            ),
+            Positioned(
+              bottom: 24,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: MicOrb(
+                  active: isActive,
+                  onTap: _onOrbTap,
+                  onLongPress: _onOrbLongPress,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class ReadScreen extends StatelessWidget {

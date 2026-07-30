@@ -3,7 +3,11 @@ import 'package:flutter/material.dart';
 import 'conversation_session_controller.dart';
 
 export 'conversation_session_controller.dart'
-    show ConversationState, NavigationRequest;
+    show
+        ConversationState,
+        FeatureVoiceCommandHandler,
+        FeatureVoiceCommandResult,
+        NavigationRequest;
 
 /// Public name for the single app-wide conversation controller.
 typedef ConversationController = ConversationSessionController;

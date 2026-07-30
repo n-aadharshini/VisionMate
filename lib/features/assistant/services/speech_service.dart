@@ -42,6 +42,7 @@ class SpeechService {
   double? lastFinalConfidence;
   bool get isListening => _speechToText.isListening;
   bool get isAvailable => _isInitialized;
+  double get soundLevel => _speechToText.lastSoundLevel;
 
   /// True while a session is starting, active, or still tearing down —
   /// i.e. anything other than fully idle. Callers should not attempt to

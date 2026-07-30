@@ -6,11 +6,24 @@ import 'package:flutter/widgets.dart';
 import '../models/chat_message.dart';
 import '../models/intent_type.dart';
 import '../models/vision_mate_response.dart';
+import '../../../core/services/follow_up_service.dart';
 import 'speech_service.dart';
 import 'tts_service.dart';
 import 'vision_mate_brain.dart';
 
 enum ConversationState { idle, listening, processing, speaking }
+
+/// A feature may claim a completed voice turn before it reaches Groq.
+/// Returning null keeps the normal Groq intent/reply pipeline unchanged.
+class FeatureVoiceCommandResult {
+  const FeatureVoiceCommandResult.handled({this.reply, this.shouldSpeak = true});
+
+  final String? reply;
+  final bool shouldSpeak;
+}
+
+typedef FeatureVoiceCommandHandler =
+    Future<FeatureVoiceCommandResult?> Function(String transcript);
 
 /// Orchestrates the single push-to-talk (PTT) conversation flow:
 ///
@@ -83,6 +96,7 @@ class ConversationSessionController extends ChangeNotifier
   bool get isListening => _state == ConversationState.listening;
   bool get isThinking => _state == ConversationState.processing;
   bool get isSpeaking => _state == ConversationState.speaking;
+  double get soundLevel => _speechService.soundLevel;
 
   // Guards against calling notifyListeners() (or touching platform
   // services) after dispose() has run. Needed because stop() is async
@@ -132,6 +146,13 @@ class ConversationSessionController extends ChangeNotifier
 
   final List<ChatMessage> _messages = [];
   List<ChatMessage> get messages => List.unmodifiable(_messages);
+  FeatureVoiceCommandHandler? _featureVoiceCommandHandler;
+
+  /// Registers the command handler for the feature currently on screen.
+  /// Only one foreground feature can own it at a time.
+  void setFeatureVoiceCommandHandler(FeatureVoiceCommandHandler? handler) {
+    _featureVoiceCommandHandler = handler;
+  }
 
   List<Map<String, String>> recentHistory({int limit = 20}) => _messages
       .where((message) => message.text.trim().isNotEmpty)
@@ -160,6 +181,13 @@ class ConversationSessionController extends ChangeNotifier
   Future<void> _handleVolumeButtonEvent(MethodCall call) async {
     switch (call.method) {
       case 'volumeUpPressed':
+        // Volume Up is the accessibility barge-in shortcut. A press while
+        // VisionMate is replying must stop that turn before starting the
+        // same PTT session used by the in-app microphone controls.
+        if (_state == ConversationState.speaking ||
+            _state == ConversationState.processing) {
+          await interruptSpeaking();
+        }
         await beginPushToTalk();
         return;
       case 'volumeUpReleased':
@@ -294,8 +322,17 @@ class ConversationSessionController extends ChangeNotifier
   /// it to a tap on the mic orb, or call it from anywhere else you want a
   /// manual interrupt.
   Future<void> interruptSpeaking() async {
-    if (_state != ConversationState.speaking) return;
+    if (_state != ConversationState.speaking &&
+        _state != ConversationState.processing) {
+      return;
+    }
+    _generation++;
+    _pushToTalkHeld = false;
+    _pendingRelease = false;
+    _isActive = false;
+    await _speechService.stopListening();
     await _ttsService.stop();
+    if (!_disposed) _setState(ConversationState.idle);
   }
 
   /// General-purpose cancel: stops any active PTT capture or in-flight
@@ -339,6 +376,42 @@ class ConversationSessionController extends ChangeNotifier
   Future<void> _handleTurn(String transcript, int generation) async {
     _finalizeUserMessage(transcript);
     if (generation != _generation) return;
+
+    final featureResult = await _featureVoiceCommandHandler?.call(transcript);
+    if (generation != _generation) return;
+    if (featureResult != null) {
+      if (featureResult.reply == null || !featureResult.shouldSpeak) return;
+      _messages.add(
+        ChatMessage(role: ChatRole.assistant, text: featureResult.reply!),
+      );
+      _setState(ConversationState.speaking);
+      _safeNotify();
+      await _speechService.stopListening();
+      debugPrint(
+        '[TTS START] ${DateTime.now().toIso8601String()} '
+        'text="${featureResult.reply}" source=feature-command',
+      );
+      await _ttsService.speak(featureResult.reply!);
+      debugPrint('[TTS END] ${DateTime.now().toIso8601String()}');
+      return;
+    }
+
+    final memoryAnswer = FollowUpService.tryAnswer(transcript);
+    if (memoryAnswer != null && generation == _generation) {
+      _messages.add(
+        ChatMessage(role: ChatRole.assistant, text: memoryAnswer),
+      );
+      _setState(ConversationState.speaking);
+      _safeNotify();
+      await _speechService.stopListening();
+      debugPrint(
+        '[MEMORY ANSWER] text="$memoryAnswer"',
+      );
+      await _ttsService.speak(memoryAnswer);
+      debugPrint('[TTS END] ${DateTime.now().toIso8601String()}');
+      return;
+    }
+
     _setState(ConversationState.processing);
 
     VisionMateResponse response;

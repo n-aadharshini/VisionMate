@@ -3,43 +3,238 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_ui.dart';
+import '../../core/widgets/vision_mate_scaffold.dart';
 import '../assistant/models/chat_message.dart';
 import '../assistant/services/conversation_controller.dart';
 
-class SplashScreen extends StatelessWidget {
+class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
+
   @override
-  Widget build(BuildContext context) => AppPage(
-    child: GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () => Navigator.pushNamed(context, '/welcome'),
-      child: const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            GlowOrb(icon: Icons.visibility_rounded, size: 142),
-            SizedBox(height: 26),
-            Text(
-              'VisionMate',
-              style: TextStyle(fontSize: 31, fontWeight: FontWeight.w900),
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen>
+    with TickerProviderStateMixin {
+  late final AnimationController _springController;
+  late final AnimationController _fadeController;
+  late final AnimationController _ringController;
+  late final Animation<double> _springAnimation;
+  bool _ready = false;
+  bool _reduceMotion = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _springController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+    _springAnimation = CurvedAnimation(
+      parent: _springController,
+      curve: Curves.elasticOut,
+    );
+
+    _fadeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+
+    _ringController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() {
+        _reduceMotion = MediaQuery.of(context).disableAnimations;
+      });
+      _runEntrance();
+    });
+  }
+
+  Future<void> _runEntrance() async {
+    if (_reduceMotion) {
+      setState(() => _ready = true);
+      await Future.delayed(const Duration(milliseconds: 800));
+      _exitToHome();
+      return;
+    }
+
+    _fadeController.forward();
+    await _springController.forward();
+    if (!mounted) return;
+
+    _ringController.repeat();
+    setState(() => _ready = true);
+
+    try {
+      final controller = ConversationControllerScope.of(context);
+      controller.speak('VisionMate ready');
+    } catch (_) {}
+
+    await Future.delayed(const Duration(milliseconds: 1200));
+    if (!mounted) return;
+    _exitToHome();
+  }
+
+  void _exitToHome() {
+    if (!mounted) return;
+    _ringController.stop();
+    _springController.reverse();
+
+    if (_reduceMotion) {
+      Navigator.pushReplacementNamed(context, '/home');
+      return;
+    }
+
+    Navigator.pushReplacementNamed(context, '/home');
+  }
+
+  @override
+  void dispose() {
+    _springController.dispose();
+    _fadeController.dispose();
+    _ringController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reduce = _reduceMotion;
+
+    return ScreenBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => _exitToHome(),
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 180,
+                  height: 180,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      if (!reduce)
+                        AnimatedBuilder(
+                          animation: _ringController,
+                          builder: (context, _) {
+                            final t = _ringController.value;
+                            final ringSize = 80 + (120 * t);
+                            final opacity = (1 - t) * 0.4;
+                            return Container(
+                              width: ringSize,
+                              height: ringSize,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: AppColors.cyan.withValues(alpha: opacity),
+                                  width: 1.5,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      if (!reduce)
+                        AnimatedBuilder(
+                          animation: _ringController,
+                          builder: (context, _) {
+                            final t = (_ringController.value + 0.5) % 1.0;
+                            final ringSize = 80 + (120 * t);
+                            final opacity = (1 - t) * 0.4;
+                            return Container(
+                              width: ringSize,
+                              height: ringSize,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: AppColors.blue.withValues(alpha: opacity),
+                                  width: 1.5,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      FadeTransition(
+                        opacity: _fadeController,
+                        child: ScaleTransition(
+                          scale: reduce
+                              ? const AlwaysStoppedAnimation(1.0)
+                              : _springAnimation,
+                          child: Container(
+                            width: 142,
+                            height: 142,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: const RadialGradient(
+                                colors: [
+                                  Color(0xFF7BEFF0),
+                                  AppColors.blue,
+                                  Color(0xFF161B52),
+                                ],
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppColors.blue.withValues(alpha: .35),
+                                  blurRadius: 40,
+                                  spreadRadius: 6,
+                                ),
+                              ],
+                            ),
+                            child: const Icon(
+                              Icons.visibility_rounded,
+                              color: Colors.white,
+                              size: 52,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 34),
+                FadeTransition(
+                  opacity: _fadeController,
+                  child: Column(
+                    children: [
+                      const Text(
+                        'VisionMate',
+                        style: TextStyle(
+                          fontSize: 31,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 7),
+                      Text(
+                        _ready ? 'Ready' : 'Your Vision. Your Voice. Your Companion.',
+                        style: const TextStyle(color: AppColors.muted),
+                      ),
+                      if (_ready) ...[
+                        const SizedBox(height: 24),
+                        Text(
+                          'Tap anywhere to begin',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.cyan.withValues(alpha: _ready ? 1.0 : 0.6),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
             ),
-            SizedBox(height: 7),
-            Text(
-              'Your Vision. Your Voice. Your Companion.',
-              style: TextStyle(color: AppColors.muted),
-            ),
-            SizedBox(height: 46),
-            Waveform(),
-            SizedBox(height: 12),
-            Text(
-              'Tap anywhere to begin',
-              style: TextStyle(fontSize: 12, color: AppColors.cyan),
-            ),
-          ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class WelcomeScreen extends StatelessWidget {
@@ -338,12 +533,6 @@ class _SpeakScreenState extends State<SpeakScreen> {
     return text.length > 120 ? '${text.substring(0, 117)}...' : text;
   }
 
-  void _endMicHoldIfListening() {
-    if (_controller.state == ConversationState.listening) {
-      _controller.endPushToTalk();
-    }
-  }
-
   void _onControllerChanged() {
     if (!mounted) return;
     setState(() {});
@@ -367,17 +556,10 @@ class _SpeakScreenState extends State<SpeakScreen> {
     super.dispose();
   }
 
-  String get _statusLabel => switch (_controller.state) {
-    ConversationState.idle => 'Ready',
-    ConversationState.listening => "I'm listening...",
-    ConversationState.processing => 'Processing...',
-    ConversationState.speaking => 'Speaking...',
-  };
-
   @override
-  Widget build(BuildContext context) => AppPage(
+  Widget build(BuildContext context) => VisionMateScaffold(
     padded: false,
-    child: Column(
+    body: Column(
       children: [
         const SizedBox(height: 8),
         const Row(
@@ -469,59 +651,6 @@ class _SpeakScreenState extends State<SpeakScreen> {
                       _ChatBubble(message: _controller.messages[i]),
                 ),
         ),
-        // Status orb strip — small persistent status indicator, not the
-        // whole screen. Breathing = idle/listening, pulsing = thinking,
-        // waveform = speaking.
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            children: [
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                // Press-and-hold, matching the hardware Volume Up button:
-                // press down starts capture, releasing (lifting the
-                // finger, or the gesture being cancelled mid-hold, e.g. by
-                // dragging off the orb) ends it. This replaces the old
-                // tap-to-start/tap-to-stop toggle, whose behavior didn't
-                // match the hold/release hardware control.
-                onTapDown: (_) {
-                  if (_controller.state == ConversationState.idle) {
-                    _controller.beginPushToTalk();
-                  } else if (_controller.state == ConversationState.speaking) {
-                    _controller.interruptSpeaking();
-                  }
-                },
-                onTapUp: (_) => _endMicHoldIfListening(),
-                onTapCancel: _endMicHoldIfListening,
-                child: GlowOrb(
-                  icon: switch (_controller.state) {
-                    ConversationState.speaking => Icons.graphic_eq_rounded,
-                    ConversationState.processing => Icons.auto_awesome_rounded,
-                    _ => Icons.mic_rounded,
-                  },
-                  size: 40,
-                  active: _controller.state != ConversationState.idle,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  _controller.state == ConversationState.listening &&
-                          _controller.partialTranscript.isNotEmpty
-                      ? _controller.partialTranscript
-                      : _controller.finalTranscript.isNotEmpty
-                      ? _controller.finalTranscript
-                      : _statusLabel,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: AppColors.muted, fontSize: 13),
-                ),
-              ),
-            ],
-          ),
-        ),
-        // Quick shortcuts to the other modes — manual entry points that
-        // sit alongside, not instead of, the conversation loop.
         SizedBox(
           height: 78,
           child: ListView(
@@ -552,7 +681,6 @@ class _SpeakScreenState extends State<SpeakScreen> {
             ],
           ),
         ),
-        const PhoneBottomNav(index: 0),
       ],
     ),
   );

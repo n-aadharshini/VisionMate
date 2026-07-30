@@ -1,88 +1,68 @@
 import 'dart:async';
 
-import 'package:geolocator/geolocator.dart';
+import 'package:geolocator/geolocator.dart' as geo;
 
+import '../../../core/services/location_service.dart' as loc;
+import '../models/travel_exception.dart';
 import 'gps_service.dart';
 
-/// Real implementation of [GpsService] backed by the `geolocator` package.
-///
-/// Add to pubspec.yaml:
-///   dependencies:
-///     geolocator: ^13.0.0
-///
-/// Android manifest (`android/app/src/main/AndroidManifest.xml`) needs the
-/// fine and coarse location `uses-permission` entries.
-///
-/// For background updates while the screen is off (needed for the
-/// OnBus / countdown states in later phases), also add the background-location
-/// `uses-permission` entry.
-///
-/// This class only wraps geolocator — it does NOT own permission-request
-/// UI. Call [ensurePermissions] once (e.g. from the app's startup flow or
-/// right before the first `startJourney`) and surface any denial to the
-/// user via TTS the same way any other TravelException is surfaced.
 class GeolocatorGpsService implements GpsService {
   GeolocatorGpsService({
     this.distanceFilterMeters = 5,
-    this.desiredAccuracy = LocationAccuracy.high,
-  });
+    this.desiredAccuracy = geo.LocationAccuracy.high,
+    this.locationTimeout = const Duration(seconds: 15),
+    loc.LocationServiceInterface? locationService,
+  }) : _locationService = locationService ?? loc.GeolocatorLocationService();
 
-  /// Minimum movement (meters) before a new update is emitted. Kept small
-  /// (5m) since bus-stop geofences are ~20m radius and we don't want to
-  /// miss the threshold crossing.
   final int distanceFilterMeters;
-  final LocationAccuracy desiredAccuracy;
+  final geo.LocationAccuracy desiredAccuracy;
+  final Duration locationTimeout;
+  final loc.LocationServiceInterface _locationService;
 
-  StreamSubscription<Position>? _subscription;
+  StreamSubscription<geo.Position>? _subscription;
   final _controller = StreamController<GpsPosition>.broadcast();
 
   @override
   Stream<GpsPosition> get positionStream => _controller.stream;
 
-  /// Checks and requests location permission + service enablement.
-  /// Throws a descriptive [StateError] if the user has permanently
-  /// denied permission, so the caller can turn that into a
-  /// [TravelException] and speak it.
-  Future<void> ensurePermissions() async {
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      throw StateError('Location services are turned off on this device.');
-    }
-
-    var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
-      throw StateError('Location permission was denied.');
-    }
-  }
-
   @override
   Future<GpsPosition> getCurrentPosition() async {
-    await ensurePermissions();
-    final position = await Geolocator.getCurrentPosition(
-      locationSettings: LocationSettings(accuracy: desiredAccuracy),
+    final result = await _locationService.getCurrentLocation(
+      accuracy: desiredAccuracy,
+      timeout: locationTimeout,
     );
-    return _toGpsPosition(position);
+    return switch (result) {
+      loc.LocationSuccess(:final position) => position,
+      loc.LocationPermissionDenied() => throw TravelException(
+          'location_permission_denied',
+          loc.describeLocationResult(result),
+        ),
+      loc.LocationPermissionDeniedForever() => throw TravelException(
+          'location_permission_denied_forever',
+          loc.describeLocationResult(result),
+        ),
+      loc.LocationServiceDisabled() => throw TravelException(
+          'location_service_disabled',
+          loc.describeLocationResult(result),
+        ),
+      loc.LocationTimeout() => throw TravelException(
+          'location_timeout',
+          loc.describeLocationResult(result),
+        ),
+    };
   }
 
   @override
   void startListening() {
     _subscription?.cancel();
-    _subscription = Geolocator.getPositionStream(
-      locationSettings: LocationSettings(
+    _subscription = geo.Geolocator.getPositionStream(
+      locationSettings: geo.LocationSettings(
         accuracy: desiredAccuracy,
         distanceFilter: distanceFilterMeters,
       ),
     ).listen(
       (position) => _controller.add(_toGpsPosition(position)),
-      onError: (Object error, StackTrace stack) {
-        // Swallow transient stream errors (e.g. a single bad fix) rather
-        // than tearing down the subscription — TravelController treats
-        // silence as "no update yet", not as a hard failure.
-      },
+      onError: (_) {},
     );
   }
 
@@ -92,7 +72,7 @@ class GeolocatorGpsService implements GpsService {
     _subscription = null;
   }
 
-  GpsPosition _toGpsPosition(Position position) => GpsPosition(
+  GpsPosition _toGpsPosition(geo.Position position) => GpsPosition(
         latitude: position.latitude,
         longitude: position.longitude,
         timestamp: position.timestamp,
@@ -101,5 +81,6 @@ class GeolocatorGpsService implements GpsService {
   void dispose() {
     stopListening();
     _controller.close();
+    _locationService.dispose();
   }
 }

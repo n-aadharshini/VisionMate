@@ -48,6 +48,10 @@ dependencies:
   just_audio: ^0.9.40
   path_provider: ^2.1.4
   record: ^6.2.0
+  flutter_animate: ^4.5.2
+  sensors_plus: ^6.1.1
+  sqflite: ^2.3.0
+  path: ^1.9.0
 
 dev_dependencies:
   flutter_test:
@@ -74,6 +78,7 @@ flutter:
     - .env
     - assets/bus_data/stops.json
     - assets/bus_data/routes.json
+    - assets/data/transit.db
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

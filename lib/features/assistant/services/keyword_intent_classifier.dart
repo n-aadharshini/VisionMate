@@ -38,11 +38,14 @@ class KeywordIntentClassifier {
     if (_containsAny(normalized, const [
       'read',
       'what does this say',
+      'what does it say',
       'what is this text',
       'scan this',
       'read this',
       'text',
       'label',
+      'repeat that',
+      'say again',
     ])) {
       return const VisionMateResponse(
         intent: IntentType.read,

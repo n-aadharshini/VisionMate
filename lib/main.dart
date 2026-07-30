@@ -4,7 +4,10 @@ import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'core/routes/app_routes.dart';
+import 'core/services/follow_up_service.dart';
+import 'core/services/ocr_memory_service.dart';
 import 'core/theme/app_theme.dart';
+import 'core/widgets/voice_overlays.dart';
 import 'features/assistant/services/conversation_controller.dart';
 
 void main() async {
@@ -28,6 +31,7 @@ class _VisionMateAppState extends State<VisionMateApp> {
   @override
   void initState() {
     super.initState();
+    FollowUpService.init(OcrMemoryService());
     // A real error callback, instead of none: previously the controller
     // was constructed with no onError, so STT/Groq/TTS/channel failures
     // had nowhere to go and were effectively silent in production. This
@@ -71,12 +75,14 @@ class _VisionMateAppState extends State<VisionMateApp> {
         debugShowCheckedModeBanner: false,
         title: 'VisionMate',
         theme: AppTheme.dark,
-        initialRoute: AppRoutes.home,
+        initialRoute: '/',
         onGenerateRoute: AppRoutes.onGenerateRoute,
         builder: (context, child) => Stack(
           children: [
             child ?? const SizedBox.shrink(),
             const ConversationStateIndicator(),
+            const ListeningOverlay(),
+            const ThinkingOverlay(),
           ],
         ),
       ),
