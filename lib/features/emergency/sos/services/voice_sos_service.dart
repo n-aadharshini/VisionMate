@@ -46,10 +46,7 @@ class VoiceSosService {
     await _tts.awaitSpeakCompletion(true);
     await _tts.setSpeechRate(0.42);
     await _tts.setPitch(1.0);
-    await speak(
-      'Voice SOS is ready. Say help, SOS, emergency, call one zero eight, '
-      'or say uthavi or avasaram.',
-    );
+    await speak('SOS enabled.');
     await _listen();
   }
 

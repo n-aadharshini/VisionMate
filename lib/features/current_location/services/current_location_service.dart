@@ -6,6 +6,7 @@ import '../models/location_model.dart';
 class CurrentLocationService {
   Future<CurrentLocation> fetch() async {
     if (!await Geolocator.isLocationServiceEnabled()) {
+      await Geolocator.openLocationSettings();
       throw const CurrentLocationException('GPS is disabled. Please enable Location Services.');
     }
     final permission = await Permission.locationWhenInUse.request();

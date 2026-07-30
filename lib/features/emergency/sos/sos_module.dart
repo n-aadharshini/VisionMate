@@ -1,10 +1,10 @@
 import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 
-import '../../../core/services/location_service.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/permission_service.dart';
 import '../../../core/services/sms_service.dart';
+import '../../../core/services/location_service.dart';
 import 'data/sos_local_datasource.dart';
 import 'data/sos_remote_datasource.dart';
 import 'data/sos_repository.dart';
@@ -31,7 +31,7 @@ class SosFeature extends StatelessWidget {
     );
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(
+        ChangeNotifierProvider<SosController>(
           create: (_) => SosController(
             sendSosUseCase: SendSosUseCase(repository: repository),
             repository: repository,
@@ -40,7 +40,7 @@ class SosFeature extends StatelessWidget {
             notificationService: NotificationService(),
           ),
         ),
-        ChangeNotifierProvider(
+        ChangeNotifierProvider<ManageContactsController>(
           create: (_) => ManageContactsController(repository),
         ),
       ],

@@ -23,20 +23,19 @@ class SosController extends ChangeNotifier {
   SosController({
     required SendSosUseCase sendSosUseCase,
     required SosRepository repository,
-    required LocationService locationService,
+    @Deprecated('SOS uses CurrentLocationService directly.')
+    LocationService? locationService,
     required PermissionService permissionService,
     required NotificationService notificationService,
     SosFeedbackService? feedbackService,
   }) : _sendSosUseCase = sendSosUseCase,
        _repository = repository,
-       _locationService = locationService,
        _permissionService = permissionService,
        _notificationService = notificationService,
        _feedback = feedbackService ?? SosFeedbackService();
 
   final SendSosUseCase _sendSosUseCase;
   final SosRepository _repository;
-  final LocationService _locationService;
   final PermissionService _permissionService;
   final NotificationService _notificationService;
   final SosFeedbackService _feedback;
@@ -56,8 +55,12 @@ class SosController extends ChangeNotifier {
 
   Future<void> initialize() => refreshContacts();
 
-  Future<void> requestSosPermissions() =>
-      _permissionService.requestAllSosPermissions();
+  /// Requests only the two permissions needed to send an SOS alert.
+  /// Phone permission is requested later, only if the user starts a call.
+  Future<void> requestSosPermissions() async {
+    await _permissionService.requestLocationPermission();
+    await _permissionService.requestSmsPermission();
+  }
 
   Future<void> refreshContacts() async {
     try {
@@ -351,24 +354,17 @@ class SosController extends ChangeNotifier {
     _set(_state.copyWith(status: SosStatus.loading, clearMessage: true));
 
     try {
-      SosLocation? location;
-      var locationDenied = false;
-      if (includeLocation) {
-        locationDenied = !await _permissionService.isLocationPermissionGranted() &&
-            !await _permissionService.requestLocationPermission();
-        if (!locationDenied) {
-          try {
-            location = await _locationService.getCurrentLocation();
-          } catch (_) {
-            location = await _locationService.getLastKnownLocation();
-          }
-        }
-      }
+      // Android presents each sensitive permission in its own system dialog.
+      // Request location before SMS so an approved location is ready to be
+      // attached to the emergency alert.
+      final locationGranted = !includeLocation ||
+          await _permissionService.requestLocationPermission();
 
-      if (location != null) {
-        location = location.withReadableAddress(
-          await _locationService.getReadableAddress(location),
-        );
+      SosLocation? location;
+      if (includeLocation && locationGranted) {
+        // SosRepositoryImpl fetches the shared Current Location service.
+        // A null value explicitly requests that best-effort fetch.
+        location = null;
       }
 
       if (!await _permissionService.requestSmsPermission()) {
@@ -388,16 +384,18 @@ class SosController extends ChangeNotifier {
       await _updateWithFeedback(
         _state.copyWith(
           status: SosStatus.success,
-          message: locationDenied
+          message: !locationGranted
               ? '${outcome.message} Location permission was denied.'
-              : outcome.message,
-          lastSentLocation: location,
+              : outcome.location == null
+                  ? '${outcome.message} Location unavailable.'
+                  : outcome.message,
+          lastSentLocation: outcome.location,
           lastSentTime: DateTime.now(),
           lastTriggerType: SosTriggerType.manual,
         ),
         () => _feedback.alertSent(
           contacts,
-          address: location?.readableAddress,
+          address: outcome.location?.readableAddress,
         ),
       );
     } on SosValidationException catch (error) {

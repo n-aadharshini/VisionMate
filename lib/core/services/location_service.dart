@@ -1,5 +1,5 @@
-import 'package:geolocator/geolocator.dart';
-import 'package:geocoding/geocoding.dart';
+import '../../features/current_location/services/current_geocoding_service.dart';
+import '../../features/current_location/services/current_location_service.dart';
 
 /// Simple value object representing a captured location point.
 class SosLocation {
@@ -40,80 +40,34 @@ class SosLocation {
   );
 }
 
-/// Wraps the `geolocator` package so the rest of the app never talks
-/// to the plugin directly.
+/// Deprecated compatibility adapter. It delegates to the Current Location
+/// feature; it does not maintain a second GPS or reverse-geocoding path.
+@Deprecated('Use CurrentLocationService and CurrentGeocodingService instead.')
 class LocationService {
-  final Geocoding _geocoding = Geocoding();
-  Future<bool> isLocationServiceEnabled() async {
-    return Geolocator.isLocationServiceEnabled();
-  }
+  LocationService({
+    CurrentLocationService? currentLocationService,
+    CurrentGeocodingService? currentGeocodingService,
+  }) : _currentLocationService =
+           currentLocationService ?? CurrentLocationService(),
+       _currentGeocodingService =
+           currentGeocodingService ?? CurrentGeocodingService();
 
-  /// Fetches the current device location.
-  /// Throws a [LocationServiceException] on failure so callers can
-  /// decide how to surface it (e.g. still send SOS without location).
+  final CurrentLocationService _currentLocationService;
+  final CurrentGeocodingService _currentGeocodingService;
+
   Future<SosLocation> getCurrentLocation() async {
-    try {
-      final serviceEnabled = await isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        throw const LocationServiceException(
-          'Location services are disabled on this device.',
-        );
-      }
-
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 12),
-        ),
-      ).timeout(const Duration(seconds: 15));
-      return SosLocation(
-        latitude: position.latitude,
-        longitude: position.longitude,
-        accuracy: position.accuracy,
-      );
-    } on LocationServiceException {
-      rethrow;
-    } catch (e) {
-      throw LocationServiceException('Failed to get current location: $e');
-    }
-  }
-
-  /// Attempts to get the last known location as a fast fallback.
-  Future<SosLocation?> getLastKnownLocation() async {
-    final position = await Geolocator.getLastKnownPosition();
-    if (position == null) return null;
+    final current = await _currentLocationService.fetch();
+    final address = await _currentGeocodingService.addressFor(current);
     return SosLocation(
-      latitude: position.latitude,
-      longitude: position.longitude,
-      accuracy: position.accuracy,
+      latitude: current.latitude,
+      longitude: current.longitude,
+      accuracy: current.accuracyMeters,
+      readableAddress: address,
     );
   }
 
-  /// Uses the device geocoder and never holds up an SOS for more than 5s.
-  Future<String?> getReadableAddress(SosLocation location) async {
-    try {
-      final placemarks = await _geocoding
-          .placemarkFromCoordinates(location.latitude, location.longitude)
-          .timeout(const Duration(seconds: 5));
-      if (placemarks.isEmpty) return null;
-      final place = placemarks.first;
-      final parts = [
-        place.street,
-        place.subLocality,
-        place.locality,
-        place.subAdministrativeArea,
-      ].whereType<String>().map((part) => part.trim()).where((part) => part.isNotEmpty).toList();
-      return parts.isEmpty ? null : parts.toSet().join(', ');
-    } catch (_) {
-      return null;
-    }
-  }
-}
-
-class LocationServiceException implements Exception {
-  final String message;
-  const LocationServiceException(this.message);
-
-  @override
-  String toString() => 'LocationServiceException: $message';
+  /// Compatibility fallback for older SOS controllers. The shared Current
+  /// Location service only exposes a fresh GPS fix, so no stale location is
+  /// returned when that fix fails.
+  Future<SosLocation?> getLastKnownLocation() async => null;
 }

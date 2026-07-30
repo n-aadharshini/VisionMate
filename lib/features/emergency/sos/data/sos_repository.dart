@@ -1,7 +1,11 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+
 import '../../../../core/services/location_service.dart';
 import '../../../../core/services/sms_service.dart';
+import '../../../current_location/services/current_geocoding_service.dart';
+import '../../../current_location/services/current_location_service.dart';
 import '../domain/sos_contact.dart';
 import 'sos_local_datasource.dart';
 import 'sos_remote_datasource.dart';
@@ -11,8 +15,13 @@ import 'sos_remote_datasource.dart';
 class SosSendOutcome {
   final bool success;
   final String message;
+  final SosLocation? location;
 
-  const SosSendOutcome({required this.success, required this.message});
+  const SosSendOutcome({
+    required this.success,
+    required this.message,
+    this.location,
+  });
 }
 
 abstract class SosRepository {
@@ -41,13 +50,21 @@ class SosRepositoryImpl implements SosRepository {
     required SosRemoteDatasource remoteDatasource,
     required SosLocalDatasource localDatasource,
     SmsService? smsService,
+    CurrentLocationService? currentLocationService,
+    CurrentGeocodingService? currentGeocodingService,
   }) : _remote = remoteDatasource,
        _local = localDatasource,
-       _sms = smsService ?? SmsService();
+       _sms = smsService ?? SmsService(),
+       _currentLocationService =
+           currentLocationService ?? CurrentLocationService(),
+       _currentGeocodingService =
+           currentGeocodingService ?? CurrentGeocodingService();
 
   final SosRemoteDatasource _remote;
   final SosLocalDatasource _local;
   final SmsService _sms;
+  final CurrentLocationService _currentLocationService;
+  final CurrentGeocodingService _currentGeocodingService;
 
   @override
   Future<List<SosContact>> loadContacts() => _local.getCachedContacts();
@@ -71,8 +88,9 @@ class SosRepositoryImpl implements SosRepository {
     String? message,
   }) async {
     final timestamp = DateTime.now();
+    final resolvedLocation = location ?? await _fetchLocation();
     final alertMessage =
-        message ?? _buildMessage(triggerType, timestamp, location);
+        message ?? _buildMessage(triggerType, timestamp, resolvedLocation);
     final results = await Future.wait([
       _sms.sendSos(
         contacts.map((contact) => contact.phoneNumber).toList(),
@@ -82,7 +100,7 @@ class SosRepositoryImpl implements SosRepository {
         contacts: contacts,
         triggerType: triggerType,
         timestamp: timestamp,
-        location: location,
+        location: resolvedLocation,
         message: alertMessage,
       ),
     ]);
@@ -92,7 +110,7 @@ class SosRepositoryImpl implements SosRepository {
       SosHistoryEntry(
         triggerType: triggerType,
         timestamp: timestamp,
-        location: location,
+        location: resolvedLocation,
         success: smsSuccess,
       ),
     );
@@ -101,20 +119,21 @@ class SosRepositoryImpl implements SosRepository {
       await _local.saveLastAlertState(
         triggerType: triggerType,
         timestamp: timestamp,
-        location: location,
+        location: resolvedLocation,
       );
 
       // Fire-and-forget: also notify emergency services backend.
       unawaited(
         _remote.notifyEmergencyServices(
-          location: location,
+          location: resolvedLocation,
           timestamp: timestamp,
         ),
       );
 
-      return const SosSendOutcome(
+      return SosSendOutcome(
         success: true,
         message: 'Emergency contacts have been alerted.',
+        location: resolvedLocation,
       );
     }
 
@@ -122,7 +141,28 @@ class SosRepositoryImpl implements SosRepository {
       success: false,
       message:
           'SMS could not be sent. Check SMS permission and mobile service.',
+      location: resolvedLocation,
     );
+  }
+
+  Future<SosLocation?> _fetchLocation() async {
+    try {
+      final current = await _currentLocationService
+          .fetch()
+          .timeout(const Duration(seconds: 8));
+      final address = await _currentGeocodingService
+          .addressFor(current)
+          .timeout(const Duration(seconds: 8));
+      return SosLocation(
+        latitude: current.latitude,
+        longitude: current.longitude,
+        accuracy: current.accuracyMeters,
+        readableAddress: address,
+      );
+    } catch (error) {
+      debugPrint('[SOS] Current location unavailable: $error');
+      return null;
+    }
   }
 
   @override

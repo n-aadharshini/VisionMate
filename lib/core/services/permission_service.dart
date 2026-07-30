@@ -7,7 +7,22 @@ import 'package:permission_handler/permission_handler.dart';
 /// emergency calls) and notifications (to show local alerts/status).
 class PermissionService {
   Future<bool> requestLocationPermission() async {
-    final status = await Permission.locationWhenInUse.request();
+    var status = await Permission.locationWhenInUse.status;
+    if (status.isPermanentlyDenied) {
+      // Android no longer shows its permission dialog after "Don't ask again".
+      // Take the user to this app's settings so Location can be enabled.
+      await openAppSettings();
+      status = await Permission.locationWhenInUse.status;
+    }
+    if (!status.isGranted && !status.isLimited) {
+      status = await Permission.locationWhenInUse.request();
+    }
+    if (!status.isGranted && !status.isLimited) {
+      // A denied request cannot be overridden by Flutter. Open the exact app
+      // settings page so the user can turn Location on for VisionMate.
+      await openAppSettings();
+      status = await Permission.locationWhenInUse.status;
+    }
     return status.isGranted || status.isLimited;
   }
 
