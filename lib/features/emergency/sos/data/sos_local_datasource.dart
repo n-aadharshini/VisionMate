@@ -50,6 +50,7 @@ class SosLocalDatasource {
   static const _legacySeedContactIds = {
     'personal_aathika_9003740502',
     'personal_divya_9360592574',
+    'personal_divi_8248135194',
   };
   List<SosContact>? _memoryContacts;
 
@@ -164,12 +165,11 @@ class SosLocalDatasource {
       name: 'aadhu',
       phoneNumber: '9361263756',
       relation: 'Primary emergency contact',
-      isPrimary: true,
     ),
     const SosContact(
-      id: 'personal_divi_8248135194',
+      id: 'personal_divi_9360592574',
       name: 'divi',
-      phoneNumber: '8248135194',
+      phoneNumber: '9360592574',
       relation: 'Primary emergency contact',
       isPrimary: true,
     ),
@@ -178,7 +178,6 @@ class SosLocalDatasource {
       name: 'naami',
       phoneNumber: '9284806239',
       relation: 'Primary emergency contact',
-      isPrimary: true,
     ),
   ];
 

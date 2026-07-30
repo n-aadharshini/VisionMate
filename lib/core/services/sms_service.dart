@@ -1,7 +1,6 @@
 import 'package:flutter_sms/flutter_sms.dart';
 
-/// Opens the platform SMS composer for each emergency contact. This is not a
-/// silent SMS sender, so Android's SEND_SMS runtime permission is not needed.
+/// Opens a pre-filled SMS composer for each recipient.
 class SmsService {
   Future<bool> sendSos(List<String> phoneNumbers, String message) async {
     final recipients = phoneNumbers.where((number) => number.trim().isNotEmpty).toList();
@@ -10,7 +9,10 @@ class SmsService {
     try {
       // Sending separately avoids Android converting the alert to a group MMS.
       for (final recipient in recipients) {
-        await sendSMS(message: message, recipients: [recipient]);
+        await sendSMS(
+          message: message,
+          recipients: [recipient],
+        );
       }
       return true;
     } catch (_) {

@@ -6,6 +6,7 @@ import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../../../../core/services/permission_service.dart';
+import '../../../../core/services/haptics_service.dart';
 
 enum VoiceSosCommand { sendSos, callAmbulance, cancelSos }
 
@@ -19,6 +20,7 @@ class VoiceSosService {
   final PermissionService _permissionService;
   final stt.SpeechToText _speech = stt.SpeechToText();
   final FlutterTts _tts = FlutterTts();
+  final HapticsService _haptics = HapticsService();
   final List<String> _localeCycle = ['en_IN', 'ta_IN'];
   bool _running = false;
   bool _handlingCommand = false;
@@ -40,6 +42,7 @@ class VoiceSosService {
       return;
     }
     _running = true;
+    await _haptics.listeningStarted();
     await _tts.awaitSpeakCompletion(true);
     await _tts.setSpeechRate(0.42);
     await _tts.setPitch(1.0);

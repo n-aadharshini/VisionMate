@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:phone_state/phone_state.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -13,6 +12,7 @@ import '../data/sos_remote_datasource.dart';
 import '../data/sos_repository.dart';
 import '../domain/send_sos_usecase.dart';
 import '../domain/sos_contact.dart';
+import '../services/sos_feedback_service.dart';
 import 'sos_state.dart';
 
 class SosController extends ChangeNotifier {
@@ -26,18 +26,20 @@ class SosController extends ChangeNotifier {
     required LocationService locationService,
     required PermissionService permissionService,
     required NotificationService notificationService,
+    SosFeedbackService? feedbackService,
   }) : _sendSosUseCase = sendSosUseCase,
        _repository = repository,
        _locationService = locationService,
        _permissionService = permissionService,
-       _notificationService = notificationService;
+       _notificationService = notificationService,
+       _feedback = feedbackService ?? SosFeedbackService();
 
   final SendSosUseCase _sendSosUseCase;
   final SosRepository _repository;
   final LocationService _locationService;
   final PermissionService _permissionService;
   final NotificationService _notificationService;
-  final FlutterTts _tts = FlutterTts();
+  final SosFeedbackService _feedback;
 
   SosState _state = const SosState();
   SosState get state => _state;
@@ -72,7 +74,7 @@ class SosController extends ChangeNotifier {
 
   Future<void> triggerManualSos({bool confirmed = true}) async {
     if (!confirmed || _state.isBusy) return;
-    await _send(contacts: _state.contacts, includeLocation: true);
+    await _send(contacts: _sosRecipients(), includeLocation: true);
   }
 
   Future<void> sendToContact(
@@ -121,6 +123,14 @@ class SosController extends ChangeNotifier {
       _callFallbackLog('launchUrl result: $opened');
       if (!opened) {
         await _reportDialFailure(contactName ?? phoneNumber);
+      } else if (contactName != null) {
+        await _updateWithFeedback(
+          _state.copyWith(
+            status: SosStatus.success,
+            message: 'Calling $contactName now.',
+          ),
+          () => _feedback.callPlaced(contactName),
+        );
       }
       return opened;
     } catch (error) {
@@ -132,8 +142,10 @@ class SosController extends ChangeNotifier {
 
   Future<void> _reportDialFailure(String contactName) async {
     final message = "Couldn't open the dialer for $contactName.";
-    _set(_state.copyWith(status: SosStatus.error, message: message));
-    await _tts.speak(message);
+    await _updateWithFeedback(
+      _state.copyWith(status: SosStatus.error, message: message),
+      () => _feedback.failure(message),
+    );
   }
 
   /// Android-only fallback for personal calls. iOS intentionally uses only
@@ -247,8 +259,10 @@ class SosController extends ChangeNotifier {
     if (_callQueue.isNotEmpty && _callAttempts < _maxPrimaryCallAttempts) {
       final next = _callQueue.first;
       final message = 'No answer. Trying ${next.name}.';
-      _set(_state.copyWith(status: SosStatus.success, message: message));
-      await _tts.speak(message);
+      await _updateWithFeedback(
+        _state.copyWith(status: SosStatus.success, message: message),
+        () => _feedback.callUnanswered(next.name),
+      );
       if (!_callFallbackCancelled) await _tryNextPrimaryContact();
       return;
     }
@@ -259,10 +273,12 @@ class SosController extends ChangeNotifier {
     if (_callFallbackCancelled) return;
     _stopCallMonitoring();
     const message = 'No one answered. Sending SMS to all contacts instead.';
-    _set(_state.copyWith(status: SosStatus.success, message: message));
-    await _tts.speak(message);
+    await _updateWithFeedback(
+      _state.copyWith(status: SosStatus.success, message: message),
+      () => _feedback.failure(message),
+    );
     if (!_callFallbackCancelled) {
-      await _send(contacts: _state.contacts, includeLocation: true);
+      await _send(contacts: _sosRecipients(), includeLocation: true);
     }
   }
 
@@ -272,12 +288,13 @@ class SosController extends ChangeNotifier {
     _callFallbackCancelled = true;
     _stopCallMonitoring();
     if (!silent) {
-      _set(
+      unawaited(_updateWithFeedback(
         _state.copyWith(
           status: SosStatus.success,
-          message: 'Emergency call sequence cancelled.',
+          message: "Great, glad you're safe.",
         ),
-      );
+        _feedback.safeConfirmed,
+      ));
     }
   }
 
@@ -303,6 +320,15 @@ class SosController extends ChangeNotifier {
     return null;
   }
 
+  List<SosContact> _sosRecipients() {
+    final primaryPersonal = _state.contacts
+        .where((contact) => !contact.isDefault && contact.isPrimary)
+        .toList();
+    return primaryPersonal.isNotEmpty
+        ? primaryPersonal
+        : _state.contacts.where((contact) => !contact.isDefault).toList();
+  }
+
   Future<void> simulateEmergencyNumberCall(String number) async {
     final message = 'Calling $number, please wait.';
     _set(
@@ -311,7 +337,7 @@ class SosController extends ChangeNotifier {
         message: message,
       ),
     );
-    await _tts.speak(message);
+    await _feedback.simulatedCall(number);
   }
 
   /// Backwards-compatible name for existing simulated-call integrations.
@@ -328,7 +354,8 @@ class SosController extends ChangeNotifier {
       SosLocation? location;
       var locationDenied = false;
       if (includeLocation) {
-        locationDenied = !await _permissionService.isLocationPermissionGranted();
+        locationDenied = !await _permissionService.isLocationPermissionGranted() &&
+            !await _permissionService.requestLocationPermission();
         if (!locationDenied) {
           try {
             location = await _locationService.getCurrentLocation();
@@ -336,6 +363,18 @@ class SosController extends ChangeNotifier {
             location = await _locationService.getLastKnownLocation();
           }
         }
+      }
+
+      if (location != null) {
+        location = location.withReadableAddress(
+          await _locationService.getReadableAddress(location),
+        );
+      }
+
+      if (!await _permissionService.requestSmsPermission()) {
+        throw const SosValidationException(
+          'SMS permission is required to send the emergency alert.',
+        );
       }
 
       final outcome = await _sendSosUseCase(
@@ -346,7 +385,7 @@ class SosController extends ChangeNotifier {
       if (!outcome.success) throw SosValidationException(outcome.message);
 
       await _notificationService.showSosSentNotification();
-      _set(
+      await _updateWithFeedback(
         _state.copyWith(
           status: SosStatus.success,
           message: locationDenied
@@ -356,15 +395,23 @@ class SosController extends ChangeNotifier {
           lastSentTime: DateTime.now(),
           lastTriggerType: SosTriggerType.manual,
         ),
+        () => _feedback.alertSent(
+          contacts,
+          address: location?.readableAddress,
+        ),
       );
     } on SosValidationException catch (error) {
-      _set(_state.copyWith(status: SosStatus.error, message: error.message));
+      await _updateWithFeedback(
+        _state.copyWith(status: SosStatus.error, message: error.message),
+        () => _feedback.failure('Unable to send SOS.'),
+      );
     } catch (error) {
-      _set(
+      await _updateWithFeedback(
         _state.copyWith(
           status: SosStatus.error,
           message: 'Unable to send SOS: $error',
         ),
+        () => _feedback.failure('Unable to send SOS.'),
       );
     }
   }
@@ -375,11 +422,19 @@ class SosController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> _updateWithFeedback(
+    SosState value,
+    Future<void> Function() feedback,
+  ) async {
+    _set(value);
+    await feedback();
+  }
+
   @override
   void dispose() {
     _disposed = true;
     cancelCallFallback(silent: true);
-    _tts.stop();
+    _feedback.dispose();
     super.dispose();
   }
 }

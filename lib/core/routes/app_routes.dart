@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../features/flow/flow_screens.dart';
 import '../../features/main/main_screens.dart';
 import '../../features/emergency/sos/sos_module.dart';
+import '../../features/current_location/presentation/current_location_screen.dart';
 
 abstract final class AppRoutes {
   static const splash = '/';
@@ -20,6 +21,7 @@ abstract final class AppRoutes {
       '/indoor-navigation' => const IndoorNavigationScreen(),
       '/travel' => const TravelScreen(),
       '/sos' => SosFeature(voiceAction: settings.arguments as String?),
+      '/current-location' => const CurrentLocationScreen(),
       '/profile' => const ProfileScreen(),
       '/settings' => const SettingsScreen(),
       '/history' => const HistoryScreen(),

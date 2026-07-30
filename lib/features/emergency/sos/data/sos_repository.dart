@@ -133,9 +133,22 @@ class SosRepositoryImpl implements SosRepository {
     DateTime timestamp,
     SosLocation? location,
   ) {
-    final locationText = location == null
-        ? 'Location unavailable.'
-        : 'Location: https://maps.google.com/?q=${location.latitude},${location.longitude}';
-    return 'VisionMate ${triggerType.name} SOS at ${timestamp.toLocal().toIso8601String()}. $locationText';
+    if (location == null) {
+      return 'Emergency! VisionMate user needs help. Location unavailable.';
+    }
+    final mapLink =
+        'https://maps.google.com/?q=${location.latitude},${location.longitude}';
+    final address = location.readableAddress;
+    final addressText = address == null || address.isEmpty
+        ? ''
+        : 'Near $address.\n';
+    return 'EMERGENCY!\n\n'
+        'I need immediate help.\n\n'
+        '$addressText'
+        'My current location:\n'
+        'Latitude: ${location.latitude}\n'
+        'Longitude: ${location.longitude}\n'
+        '$mapLink\n\n'
+        'Please reach me as soon as possible.';
   }
 }

@@ -26,13 +26,13 @@ class PermissionService {
       (await Permission.microphone.request()).isGranted;
 
   /// Requests the SOS permissions together when the SOS screen opens.
-  /// SMS is intentionally absent: the app opens the native SMS composer.
   Future<Map<String, bool>> requestAllSosPermissions() async {
     final permissions = <Permission>[
       Permission.locationWhenInUse,
       Permission.phone,
       Permission.notification,
       Permission.microphone,
+      Permission.sms,
       if (Platform.isAndroid) Permission.activityRecognition,
     ];
     final statuses = await permissions.request();
@@ -41,6 +41,7 @@ class PermissionService {
       'phone': _isGranted(statuses[Permission.phone]),
       'notification': _isGranted(statuses[Permission.notification]),
       'microphone': _isGranted(statuses[Permission.microphone]),
+      'sms': _isGranted(statuses[Permission.sms]),
       'activityRecognition': Platform.isAndroid
           ? _isGranted(statuses[Permission.activityRecognition])
           : true,
