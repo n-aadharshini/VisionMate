@@ -7,6 +7,15 @@ class KeywordIntentClassifier {
     final normalized = text.toLowerCase();
     final destination = _extractDestination(text);
 
+    if (_containsAny(normalized, const ['hello', ' hi', 'how are you', 'what\'s up', 'whats up', 'joke', 'bored'])) {
+      final reply = normalized.contains('joke')
+          ? 'Why did the phone go to school? It wanted to be smarter.'
+          : normalized.contains('bored')
+              ? 'Let’s make things interesting. Want a joke, a quick chat, or help planning somewhere to go?'
+              : 'Hi! I’m here with you. How can I help today?';
+      return VisionMateResponse(intent: IntentType.chat, destination: null, reply: reply, confidence: 0.6, source: 'keyword', isFallback: true);
+    }
+
     if (_containsAny(normalized, const [
       'help',
       'sos',
@@ -22,6 +31,7 @@ class KeywordIntentClassifier {
         reply: 'I’m here with you. Opening help options now.',
         confidence: 0.8,
         source: 'keyword',
+        isFallback: true,
       );
     }
 
@@ -40,6 +50,7 @@ class KeywordIntentClassifier {
         reply: 'Okay, point the camera at the text and I’ll read it for you.',
         confidence: 0.75,
         source: 'keyword',
+        isFallback: true,
       );
     }
 
@@ -61,6 +72,7 @@ class KeywordIntentClassifier {
             : 'Sure, I’ll help you find travel options for $destination.',
         confidence: 0.75,
         source: 'keyword',
+        isFallback: true,
       );
     }
 
@@ -82,16 +94,18 @@ class KeywordIntentClassifier {
             : 'Sure, let’s get you to $destination.',
         confidence: 0.75,
         source: 'keyword',
+        isFallback: true,
       );
     }
 
     return const VisionMateResponse(
-      intent: IntentType.unknown,
+      intent: IntentType.chat,
       destination: null,
       reply:
           'I’m sorry, I didn’t quite catch that. Please try saying it again.',
       confidence: 0.3,
       source: 'keyword',
+      isFallback: true,
     );
   }
 

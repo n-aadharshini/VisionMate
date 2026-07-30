@@ -133,6 +133,12 @@ class ConversationSessionController extends ChangeNotifier
   final List<ChatMessage> _messages = [];
   List<ChatMessage> get messages => List.unmodifiable(_messages);
 
+  List<Map<String, String>> recentHistory({int limit = 20}) => _messages
+      .where((message) => message.text.trim().isNotEmpty)
+      .skip(_messages.length > limit ? _messages.length - limit : 0)
+      .map((message) => {'role': message.role == ChatRole.user ? 'user' : 'assistant', 'content': message.text})
+      .toList(growable: false);
+
   /// Shared speech entry point for feature controllers such as Travel.
   /// It deliberately reuses the app-wide TTS instance instead of letting a
   /// feature construct a competing player or queue.
@@ -341,11 +347,11 @@ class ConversationSessionController extends ChangeNotifier
       '[SENDING TO GROQ] ${apiStartedAt.toIso8601String()} text="$transcript"',
     );
     try {
-      response = await _brain.classify(transcript);
+      response = await _brain.classify(transcript, history: recentHistory());
     } catch (error) {
       _reportError(error);
       response = const VisionMateResponse(
-        intent: IntentType.unknown,
+        intent: IntentType.chat,
         destination: null,
         reply: 'Sorry, I ran into a problem there. Could you try again?',
         confidence: 0,
@@ -397,7 +403,7 @@ class ConversationSessionController extends ChangeNotifier
       ),
       IntentType.read => const NavigationRequest(routeName: '/read'),
       IntentType.help => const NavigationRequest(routeName: '/help'),
-      IntentType.chat || IntentType.unknown => null,
+      IntentType.chat => null,
     };
   }
 

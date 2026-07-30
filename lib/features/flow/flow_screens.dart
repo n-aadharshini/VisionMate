@@ -349,7 +349,8 @@ class _SpeakScreenState extends State<SpeakScreen> {
     setState(() {});
     // Keep the latest message in view as the chat grows/streams in.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
+      if (!_scrollController.hasClients ||
+          !_scrollController.position.hasContentDimensions) return;
       _scrollController.animateTo(
         _scrollController.position.maxScrollExtent,
         duration: const Duration(milliseconds: 220),

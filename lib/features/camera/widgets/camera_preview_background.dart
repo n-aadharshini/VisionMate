@@ -7,10 +7,10 @@ class CameraPreviewBackground extends StatefulWidget {
   final ValueChanged<String> onStatus;
   final bool torchOn;
   @override
-  State<CameraPreviewBackground> createState() => _CameraPreviewBackgroundState();
+  State<CameraPreviewBackground> createState() => CameraPreviewBackgroundState();
 }
 
-class _CameraPreviewBackgroundState extends State<CameraPreviewBackground>
+class CameraPreviewBackgroundState extends State<CameraPreviewBackground>
     with WidgetsBindingObserver {
   CameraController? _controller;
   String _message = 'Preparing camera';
@@ -41,6 +41,12 @@ class _CameraPreviewBackgroundState extends State<CameraPreviewBackground>
 
   @override
   void dispose() { WidgetsBinding.instance.removeObserver(this); _controller?.dispose(); super.dispose(); }
+
+  Future<XFile?> capture() async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized || controller.value.isTakingPicture) return null;
+    return controller.takePicture();
+  }
 
   @override
   Widget build(BuildContext context) {

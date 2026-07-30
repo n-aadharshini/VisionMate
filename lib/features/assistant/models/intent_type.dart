@@ -4,5 +4,4 @@ enum IntentType {
   read,
   help,
   chat,
-  unknown,
 }

@@ -27,7 +27,6 @@ class SpeechService {
   // does not send a request before the user releases Volume Up.
   static const _pauseFor = Duration(seconds: 60);
   static const _listenFor = Duration(seconds: 60);
-  static const _minimumConfidence = 0.45;
 
   final stt.SpeechToText _speechToText;
   bool _isInitialized = false;
@@ -179,12 +178,11 @@ class SpeechService {
     );
     _onFinalConfidence?.call(confidence);
 
-    if (text.isEmpty ||
-        (confidence != null && confidence < _minimumConfidence)) {
+    if (text.isEmpty) {
       debugPrint(
-        'Native STT rejected final input: '
+        'Native STT rejected empty final input: '
         'confidence=${confidence?.toStringAsFixed(2) ?? 'unavailable'} '
-        'threshold=$_minimumConfidence',
+        'confidence=${confidence?.toStringAsFixed(2) ?? 'unavailable'}',
       );
       _onResult?.call('');
       return;
