@@ -13,6 +13,7 @@ import '../../services/default_journey_planner_service.dart';
 import '../../services/geofence_service.dart';
 import '../../services/geolocator_gps_service.dart';
 import '../../services/nominatim_geocoding_service.dart';
+import '../../services/navigation_service.dart';
 
 /// The real screen behind both `/navigate` and `/travel`.
 ///
@@ -85,6 +86,7 @@ class _JourneyScreenState extends State<JourneyScreen> {
       gpsService: GeolocatorGpsService(),
       geofenceService: geofence,
       journeyPlannerService: journeyPlanner,
+      navigationService: OsrmNavigationService(),
     );
   }
 
@@ -96,7 +98,12 @@ class _JourneyScreenState extends State<JourneyScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => AppPage(
+  Widget build(BuildContext context) {
+    final conversation = ConversationControllerScope.of(context);
+    final lastMessage = conversation.messages.isEmpty
+        ? 'You can keep speaking while guidance is open.'
+        : conversation.messages.last.text;
+    return AppPage(
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -144,10 +151,15 @@ class _JourneyScreenState extends State<JourneyScreen> {
             icon: Icons.check_rounded,
             onPressed: () => Navigator.of(context).pop(),
           ),
+        MiniChatStrip(
+          text: lastMessage,
+          onTap: () => Navigator.of(context).pop(),
+        ),
         const SizedBox(height: 16),
       ],
     ),
-  );
+    );
+  }
 
   IconData _iconFor(TravelState state) => switch (state) {
     TravelState.idle => Icons.explore_outlined,

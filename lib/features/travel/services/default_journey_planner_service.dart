@@ -51,7 +51,14 @@ class DefaultJourneyPlannerService implements JourneyPlannerService {
     required double currentLng,
     required String destinationQuery,
   }) async {
-    final place = await _geocoding.geocode(destinationQuery);
+    final matchedStop = await _stops.findByDestinationQuery(destinationQuery);
+    final place = matchedStop == null
+        ? await _geocoding.geocode(destinationQuery)
+        : GeocodedPlace(
+            displayName: matchedStop.name,
+            latitude: matchedStop.latitude,
+            longitude: matchedStop.longitude,
+          );
     if (place == null) {
       throw TravelException(
         'destination_not_found',
@@ -92,11 +99,11 @@ class DefaultJourneyPlannerService implements JourneyPlannerService {
       );
     }
 
-    final alightingStop = await _stops.nearestStop(
-      place.latitude,
-      place.longitude,
-      maxDistanceMeters: maxStopSearchRadiusMeters,
-    );
+    final alightingStop = matchedStop ?? await _stops.nearestStop(
+          place.latitude,
+          place.longitude,
+          maxDistanceMeters: maxStopSearchRadiusMeters,
+        );
     if (alightingStop == null) {
       throw TravelException(
         'no_nearby_stop',

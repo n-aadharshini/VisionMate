@@ -8,10 +8,15 @@
   },
   {
     "id": "stop_agni",
-    "name": "Agni College Stop",
+    "name": "Agni College of Technology Bus Stop",
     "latitude": 13.0475,
     "longitude": 80.2219,
-    "routes": ["21C"]
+    "routes": ["21C"],
+    "aliases": [
+      "Agni College Stop",
+      "Agni College",
+      "College of Technology"
+    ]
   },
   {
     "id": "stop_central",

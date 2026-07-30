@@ -71,11 +71,11 @@ class _VisionMateAppState extends State<VisionMateApp> {
         debugShowCheckedModeBanner: false,
         title: 'VisionMate',
         theme: AppTheme.dark,
-        initialRoute: AppRoutes.splash,
+        initialRoute: AppRoutes.home,
         onGenerateRoute: AppRoutes.onGenerateRoute,
         builder: (context, child) => Stack(
           children: [
-            if (child != null) child,
+            child ?? const SizedBox.shrink(),
             const ConversationStateIndicator(),
           ],
         ),

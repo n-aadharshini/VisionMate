@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import '../models/journey_plan.dart';
 import '../models/travel_exception.dart';
@@ -40,10 +41,12 @@ class TravelController {
     this.busStopGeofenceRadiusMeters = 20,
     this.destinationGeofenceRadiusMeters = 15,
     this.turnNarrationRadiusMeters = 15,
+    this.offRouteThresholdMeters = 25,
+    this.offRouteSamplesRequired = 3,
   }) : _gps = gpsService ?? StubGpsService(),
        _geofence = geofenceService ?? HaversineGeofenceService(),
        _journeyPlanner = journeyPlannerService ?? StubJourneyPlannerService(),
-       _navigation = navigationService ?? StubNavigationService(),
+       _navigation = navigationService ?? OsrmNavigationService(),
        _stateMachine = TravelStateMachine();
 
   final GpsService _gps;
@@ -70,6 +73,11 @@ class TravelController {
   /// advancing to the next one.
   final double turnNarrationRadiusMeters;
 
+  /// A user must be this far from the route line for several consecutive
+  /// GPS samples before rerouting. This filters normal GPS drift.
+  final double offRouteThresholdMeters;
+  final int offRouteSamplesRequired;
+
   JourneyPlan? _activePlan;
   StreamSubscription<GpsPosition>? _gpsSubscription;
 
@@ -79,12 +87,15 @@ class TravelController {
   /// fetching them failed — narration is advisory-only, so a failure here
   /// never blocks the underlying geofence arrival trigger.
   List<NavigationStep> _walkingSteps = const [];
+  List<RoutePoint> _walkingRoutePoints = const [];
   int _walkingStepIndex = 0;
+  int _offRouteSamples = 0;
 
   /// Identifies which leg [_walkingSteps] currently belongs to, so
   /// [_onPositionUpdate] only fetches directions once per leg instead of
   /// re-fetching on every GPS update. Null means no leg fetched yet.
   TravelState? _walkingLegState;
+  int _journeyEpoch = 0;
 
   /// Guards [_updateWalkingNarration] against overlapping runs — a `speak`
   /// call can take a couple of seconds, during which several more GPS
@@ -100,6 +111,8 @@ class TravelController {
   /// user's speech (idle -> listening -> planning -> first navigation
   /// state, all without further user input, per the spec).
   Future<void> startJourney(String destinationQuery) async {
+    final journeyEpoch = ++_journeyEpoch;
+    _stopGpsMonitoring();
     // Defensive reset in case this controller instance is reused across
     // more than one journey — a stale leg from a previous trip should
     // never bleed into a new one.
@@ -110,14 +123,17 @@ class TravelController {
       _stateMachine.transitionTo(TravelState.planning);
 
       final position = await _gps.getCurrentPosition();
+      if (journeyEpoch != _journeyEpoch) return;
       final plan = await _journeyPlanner.planJourney(
         currentLat: position.latitude,
         currentLng: position.longitude,
         destinationQuery: destinationQuery,
       );
+      if (journeyEpoch != _journeyEpoch) return;
       _activePlan = plan;
 
       await speak(plan.summarySpeech);
+      if (journeyEpoch != _journeyEpoch) return;
 
       _stateMachine.transitionTo(
         plan.walkOnly
@@ -127,8 +143,10 @@ class TravelController {
 
       _beginGpsMonitoring();
     } on TravelException catch (e) {
+      if (journeyEpoch != _journeyEpoch) return;
       await _handleFailure(e.message);
     } catch (e) {
+      if (journeyEpoch != _journeyEpoch) return;
       // Phase 1: the injected services are stubs and will throw
       // UnimplementedError here — that's expected until Phase 2/3 land.
       // This catch-all becomes real user-facing error recovery once the
@@ -142,9 +160,13 @@ class TravelController {
   /// boarding stop. Exposed as an explicit method (rather than buried in
   /// a GPS callback) so tests can drive the state machine without a real
   /// GPS stream.
-  void onArrivedAtBusStop() {
+  Future<void> onArrivedAtBusStop() async {
     if (_stateMachine.canTransitionTo(TravelState.waitingForBus)) {
       _stateMachine.transitionTo(TravelState.waitingForBus);
+      _journeyEpoch++;
+      _stopGpsMonitoring();
+      _resetWalkingNarrationState();
+      await speak('You have reached the bus stop.');
     }
   }
 
@@ -170,7 +192,10 @@ class TravelController {
   Future<void> onArrivedAtDestination() async {
     if (_stateMachine.canTransitionTo(TravelState.completed)) {
       _stateMachine.transitionTo(TravelState.completed);
-      await speak('You have arrived.');
+      _journeyEpoch++;
+      _stopGpsMonitoring();
+      _resetWalkingNarrationState();
+      await speak('You have arrived at your destination.');
     }
   }
 
@@ -178,8 +203,8 @@ class TravelController {
   /// from any state — e.g. the user says "cancel" or a hard error occurs
   /// upstream in ConversationSessionController.
   void cancelJourney() {
-    _gpsSubscription?.cancel();
-    _gps.stopListening();
+    _journeyEpoch++;
+    _stopGpsMonitoring();
     _activePlan = null;
     _resetWalkingNarrationState();
     _stateMachine.reset();
@@ -187,15 +212,23 @@ class TravelController {
 
   void _resetWalkingNarrationState() {
     _walkingSteps = const [];
+    _walkingRoutePoints = const [];
     _walkingStepIndex = 0;
+    _offRouteSamples = 0;
     _walkingLegState = null;
     _narrating = false;
   }
 
   void _beginGpsMonitoring() {
+    _stopGpsMonitoring();
     _gps.startListening();
-    _gpsSubscription?.cancel();
     _gpsSubscription = _gps.positionStream.listen(_onPositionUpdate);
+  }
+
+  void _stopGpsMonitoring() {
+    _gpsSubscription?.cancel();
+    _gpsSubscription = null;
+    _gps.stopListening();
   }
 
   /// The one place GPS updates get turned into state transitions and
@@ -232,7 +265,7 @@ class TravelController {
           boardingStop.longitude,
           busStopGeofenceRadiusMeters,
         )) {
-          onArrivedAtBusStop();
+          unawaited(onArrivedAtBusStop());
         }
         break;
 
@@ -251,7 +284,7 @@ class TravelController {
           plan.destinationLng,
           destinationGeofenceRadiusMeters,
         )) {
-          onArrivedAtDestination();
+          unawaited(onArrivedAtDestination());
         }
         break;
 
@@ -277,6 +310,7 @@ class TravelController {
   ) async {
     if (_narrating) return;
     _narrating = true;
+    final navigationEpoch = _journeyEpoch;
     try {
       if (_walkingLegState != legState) {
         // New leg — fetch fresh directions from here to the leg's target,
@@ -284,22 +318,45 @@ class TravelController {
         _walkingLegState = legState;
         _walkingStepIndex = 0;
         try {
-          _walkingSteps = await _navigation.getWalkingDirections(
+          final route = await _navigation.getWalkingRoute(
             fromLat: position.latitude,
             fromLng: position.longitude,
             toLat: toLat,
             toLng: toLng,
           );
+          if (navigationEpoch != _journeyEpoch || state != legState) return;
+          _walkingSteps = route.steps;
+          _walkingRoutePoints = route.points;
+        } on TravelException catch (error) {
+          _walkingSteps = const [];
+          if (navigationEpoch != _journeyEpoch || state != legState) return;
+          await speak(error.message);
+          return;
         } catch (_) {
           _walkingSteps = const [];
+          if (navigationEpoch != _journeyEpoch || state != legState) return;
+          await speak(
+            'I could not get walking instructions right now. I will still let you know when you reach the destination.',
+          );
           return;
         }
         if (_walkingSteps.isEmpty) return;
         // Speak the first instruction immediately rather than waiting for
         // the rider to physically reach its waypoint — this is the
         // "start walking, here's your first instruction" moment.
+        if (navigationEpoch != _journeyEpoch || state != legState) return;
         await speak(_walkingSteps.first.instruction);
         _walkingStepIndex = 1;
+        return;
+      }
+
+      if (await _rerouteIfOffRoute(
+        legState: legState,
+        position: position,
+        toLat: toLat,
+        toLng: toLng,
+        navigationEpoch: navigationEpoch,
+      )) {
         return;
       }
 
@@ -318,6 +375,7 @@ class TravelController {
           break;
         }
         _walkingStepIndex++;
+        if (navigationEpoch != _journeyEpoch || state != legState) return;
         await speak(step.instruction);
       }
     } finally {
@@ -325,20 +383,116 @@ class TravelController {
     }
   }
 
+  Future<bool> _rerouteIfOffRoute({
+    required TravelState legState,
+    required GpsPosition position,
+    required double toLat,
+    required double toLng,
+    required int navigationEpoch,
+  }) async {
+    if (_walkingRoutePoints.length < 2) return false;
+    final distance = _distanceToRouteMeters(position, _walkingRoutePoints);
+    if (distance <= offRouteThresholdMeters) {
+      _offRouteSamples = 0;
+      return false;
+    }
+
+    _offRouteSamples++;
+    if (_offRouteSamples < offRouteSamplesRequired) return false;
+    _offRouteSamples = 0;
+    await speak('You have gone off route. Calculating a new route.');
+    if (navigationEpoch != _journeyEpoch || state != legState) return true;
+
+    try {
+      final route = await _navigation.getWalkingRoute(
+        fromLat: position.latitude,
+        fromLng: position.longitude,
+        toLat: toLat,
+        toLng: toLng,
+      );
+      if (navigationEpoch != _journeyEpoch || state != legState) return true;
+      _walkingSteps = route.steps;
+      _walkingRoutePoints = route.points;
+      _walkingStepIndex = 0;
+      if (_walkingSteps.isEmpty) {
+        await speak('I could not find a new walking route from here.');
+        return true;
+      }
+      await speak(_walkingSteps.first.instruction);
+      _walkingStepIndex = 1;
+    } on TravelException catch (error) {
+      if (navigationEpoch == _journeyEpoch && state == legState) {
+        await speak(error.message);
+      }
+    } catch (_) {
+      if (navigationEpoch == _journeyEpoch && state == legState) {
+        await speak('I could not recalculate the walking route right now.');
+      }
+    }
+    return true;
+  }
+
+  /// Short-distance projection of a GPS point onto each route segment.
+  /// At pedestrian-navigation scale this is accurate enough to distinguish
+  /// genuine 25m deviations from normal location drift.
+  double _distanceToRouteMeters(
+    GpsPosition position,
+    List<RoutePoint> routePoints,
+  ) {
+    var nearest = double.infinity;
+    for (var index = 0; index < routePoints.length - 1; index++) {
+      final distance = _distanceToSegmentMeters(
+        position,
+        routePoints[index],
+        routePoints[index + 1],
+      );
+      if (distance < nearest) nearest = distance;
+    }
+    return nearest;
+  }
+
+  double _distanceToSegmentMeters(
+    GpsPosition position,
+    RoutePoint start,
+    RoutePoint end,
+  ) {
+    const metersPerDegree = 111320.0;
+    final referenceLatitude = (start.latitude + end.latitude + position.latitude) / 3;
+    final longitudeScale = metersPerDegree * math.cos(referenceLatitude * math.pi / 180);
+    final startX = start.longitude * longitudeScale;
+    final startY = start.latitude * metersPerDegree;
+    final endX = end.longitude * longitudeScale;
+    final endY = end.latitude * metersPerDegree;
+    final pointX = position.longitude * longitudeScale;
+    final pointY = position.latitude * metersPerDegree;
+    final dx = endX - startX;
+    final dy = endY - startY;
+    final lengthSquared = dx * dx + dy * dy;
+    if (lengthSquared == 0) {
+      return math.sqrt(math.pow(pointX - startX, 2) + math.pow(pointY - startY, 2));
+    }
+    final projection = (((pointX - startX) * dx) + ((pointY - startY) * dy)) / lengthSquared;
+    final t = projection.clamp(0.0, 1.0);
+    final nearestX = startX + t * dx;
+    final nearestY = startY + t * dy;
+    return math.sqrt(math.pow(pointX - nearestX, 2) + math.pow(pointY - nearestY, 2));
+  }
+
   Future<void> _handleFailure(String message) async {
+    _journeyEpoch++;
     await speak(message);
     if (_stateMachine.canTransitionTo(TravelState.error)) {
       _stateMachine.transitionTo(TravelState.error);
     }
-    _gpsSubscription?.cancel();
-    _gps.stopListening();
+    _stopGpsMonitoring();
     _resetWalkingNarrationState();
     _stateMachine.reset();
   }
 
   void dispose() {
-    _gpsSubscription?.cancel();
-    _gps.stopListening();
+    _journeyEpoch++;
+    _stopGpsMonitoring();
+    _navigation.dispose();
     _resetWalkingNarrationState();
     _stateMachine.dispose();
   }

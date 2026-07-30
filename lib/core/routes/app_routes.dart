@@ -1,26 +1,25 @@
 import 'package:flutter/material.dart';
 import '../../features/flow/flow_screens.dart';
 import '../../features/main/main_screens.dart';
+import '../../features/camera/read_mode_screen.dart';
 import '../../features/travel/state_machine/screens/navigate_screen.dart'
     as travel;
 import '../../features/travel/state_machine/screens/travel_screen.dart'
     as travel;
 
 abstract final class AppRoutes {
-  static const splash = '/';
+  static const home = '/home';
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {
     final Widget page = switch (settings.name) {
-      '/' => const SplashScreen(),
-      '/welcome' => const WelcomeScreen(),
-      '/permissions' => const PermissionsScreen(),
-      '/sign-in' => const SignInScreen(),
       '/home' => const HomeScreen(),
       '/speak' => const SpeakScreen(),
       '/processing' => const ProcessingScreen(),
-      '/read' => const ReadScreen(),
+      '/read' => const ReadModeScreen(),
       '/navigate' => const travel.NavigateScreen(),
+      '/navigate/live' => const travel.LiveNavigateScreen(),
       '/indoor-navigation' => const IndoorNavigationScreen(),
       '/travel' => const travel.TravelScreen(),
+      '/travel/live' => const travel.LiveTravelScreen(),
       '/help' => const HelpScreen(),
       '/sos' => const SosScreen(),
       '/profile' => const ProfileScreen(),
@@ -30,7 +29,7 @@ abstract final class AppRoutes {
       '/offline' => const OfflineScreen(),
       '/arrived' => const ArrivedScreen(),
       '/microinteractions' => const MicrointeractionsScreen(),
-      _ => const SplashScreen(),
+      _ => const HomeScreen(),
     };
     return PageRouteBuilder(
       settings: settings,

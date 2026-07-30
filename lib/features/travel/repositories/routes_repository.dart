@@ -12,17 +12,16 @@ import '../models/bus_route.dart';
 /// boarding stop on that route)? A route that passes both stops in the
 /// wrong order is not usable and must be rejected.
 class RoutesRepository {
-  RoutesRepository({String assetPath = 'assets/bus_data/routes.json'})
-      : _assetPath = assetPath;
+  RoutesRepository({this.assetPath = 'assets/bus_data/routes.json'});
 
-  final String _assetPath;
+  final String assetPath;
   List<BusRoute>? _cache;
 
   Future<List<BusRoute>> loadAll() async {
     final cached = _cache;
     if (cached != null) return cached;
 
-    final raw = await rootBundle.loadString(_assetPath);
+    final raw = await rootBundle.loadString(assetPath);
     final decoded = jsonDecode(raw) as List<dynamic>;
     final routes = decoded
         .map((e) => BusRoute.fromJson(e as Map<String, dynamic>))

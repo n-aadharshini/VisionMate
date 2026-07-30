@@ -10,6 +10,7 @@ class BusStop {
     required this.latitude,
     required this.longitude,
     required this.routes,
+    this.aliases = const [],
   });
 
   final String id;
@@ -17,6 +18,7 @@ class BusStop {
   final double latitude;
   final double longitude;
   final List<String> routes;
+  final List<String> aliases;
 
   factory BusStop.fromJson(Map<String, dynamic> json) {
     return BusStop(
@@ -25,6 +27,7 @@ class BusStop {
       latitude: (json['latitude'] as num).toDouble(),
       longitude: (json['longitude'] as num).toDouble(),
       routes: List<String>.from(json['routes'] as List? ?? const []),
+      aliases: List<String>.from(json['aliases'] as List? ?? const []),
     );
   }
 
@@ -34,6 +37,7 @@ class BusStop {
         'latitude': latitude,
         'longitude': longitude,
         'routes': routes,
+        'aliases': aliases,
       };
 
   @override

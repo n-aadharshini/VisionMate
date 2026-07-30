@@ -330,6 +330,92 @@ class AppBackButton extends StatelessWidget {
   );
 }
 
+/// Common focused-task layout used by Navigate, Travel, and Read. Feature
+/// screens deliberately do not render the tab navigation; the supplied
+/// [bottom] slot keeps their live conversation context within reach.
+class FeatureScreenShell extends StatelessWidget {
+  const FeatureScreenShell({
+    super.key,
+    required this.title,
+    required this.child,
+    required this.bottom,
+    this.trailing,
+  });
+
+  final String title;
+  final Widget child;
+  final Widget bottom;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) => AppPage(
+    child: Column(
+      children: [
+        SizedBox(
+          height: 56,
+          child: Row(
+            children: [
+              const AppBackButton(),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                ),
+              ),
+              if (trailing != null) trailing!,
+            ],
+          ),
+        ),
+        Expanded(child: child),
+        const SizedBox(height: 12),
+        bottom,
+        const SizedBox(height: 16),
+      ],
+    ),
+  );
+}
+
+/// A compact, accessible view of the latest voice exchange for a focused
+/// feature screen. The root-level ConversationStateIndicator remains the
+/// single source of listening/thinking/speaking status.
+class MiniChatStrip extends StatelessWidget {
+  const MiniChatStrip({super.key, required this.text, required this.onTap});
+
+  final String text;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: 'Open conversation. $text',
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: AppCard(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        child: Row(
+          children: [
+            const Icon(Icons.forum_outlined, color: AppColors.cyan, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                text,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+            const Icon(Icons.expand_less_rounded, color: AppColors.muted),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 /// Floating glass bottom nav. Same constructor as before (index).
 class PhoneBottomNav extends StatelessWidget {
   final int index;

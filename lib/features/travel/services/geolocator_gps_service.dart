@@ -10,14 +10,12 @@ import 'gps_service.dart';
 ///   dependencies:
 ///     geolocator: ^13.0.0
 ///
-/// Android manifest (android/app/src/main/AndroidManifest.xml), inside
-/// <manifest>, above <application>:
-///   <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
-///   <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+/// Android manifest (`android/app/src/main/AndroidManifest.xml`) needs the
+/// fine and coarse location `uses-permission` entries.
 ///
 /// For background updates while the screen is off (needed for the
-/// OnBus / countdown states in later phases), also add:
-///   <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
+/// OnBus / countdown states in later phases), also add the background-location
+/// `uses-permission` entry.
 ///
 /// This class only wraps geolocator — it does NOT own permission-request
 /// UI. Call [ensurePermissions] once (e.g. from the app's startup flow or

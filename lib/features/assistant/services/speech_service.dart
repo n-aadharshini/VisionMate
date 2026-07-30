@@ -16,7 +16,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 /// [startListening] refuse to start (rather than silently no-op, which
 /// used to leave the caller's completer hanging forever) until a session
 /// has fully reached [_SessionState.idle].
-enum _SessionState { idle, starting, listening, stopping }
+enum _SessionState { idle, starting, listening }
 
 class SpeechService {
   SpeechService({stt.SpeechToText? speechToText})
