@@ -352,6 +352,7 @@ class SosController extends ChangeNotifier {
     required bool includeLocation,
   }) async {
     _set(_state.copyWith(status: SosStatus.loading, clearMessage: true));
+    await _feedback.alertSending(contacts, includesLocation: includeLocation);
 
     try {
       // Android presents each sensitive permission in its own system dialog.
@@ -393,10 +394,7 @@ class SosController extends ChangeNotifier {
           lastSentTime: DateTime.now(),
           lastTriggerType: SosTriggerType.manual,
         ),
-        () => _feedback.alertSent(
-          contacts,
-          address: outcome.location?.readableAddress,
-        ),
+        _feedback.alertSent,
       );
     } on SosValidationException catch (error) {
       await _updateWithFeedback(

@@ -14,9 +14,24 @@ class SosFeedbackService {
 
   Future<void> listeningStarted() => _haptics.listeningStarted();
 
-  Future<void> alertSent(List<SosContact> contacts, {String? address}) async {
+  /// Speaks as soon as the resolved SOS action begins, before permissions,
+  /// location lookup, and delivery complete.
+  Future<void> alertSending(
+    List<SosContact> contacts, {
+    required bool includesLocation,
+  }) {
+    final names = _recipientNames(contacts);
+    final message = includesLocation
+        ? 'Sending your location to $names.'
+        : 'Sending SOS to $names.';
+    return _speak(message);
+  }
+
+  /// Keeps the existing success haptic timing, with a concise completion
+  /// read-back that intentionally contains no recipient or address details.
+  Future<void> alertSent() async {
     await _haptics.alertSent();
-    await _speak(_sentMessage(contacts, address));
+    await _speak('Sent.');
   }
 
   Future<void> callPlaced(String name) => _speak('Calling $name now.');
@@ -42,13 +57,10 @@ class SosFeedbackService {
 
   Future<void> dispose() => _tts.stop();
 
-  String _sentMessage(List<SosContact> contacts, String? address) {
-    final names = contacts.take(2).map((contact) => contact.name).join(' and ');
-    final location = address == null || address.isEmpty
-        ? 'using coordinates.'
-        : 'near $address.';
-    return 'Sent to $names, $location';
-  }
+  String _recipientNames(List<SosContact> contacts) => contacts
+      .take(2)
+      .map((contact) => contact.name)
+      .join(' and ');
 
   Future<void> _speak(String message) => _tts.speak(message);
 }
