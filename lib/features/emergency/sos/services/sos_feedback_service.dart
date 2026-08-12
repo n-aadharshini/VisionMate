@@ -34,7 +34,9 @@ class SosFeedbackService {
     await _speak('Sent.');
   }
 
-  Future<void> callPlaced(String name) => _speak('Calling $name now.');
+  Future<void> callStarting(String name) => _speak('Calling $name.');
+
+  Future<void> callFailed(String name) => _speak("Couldn't call $name.");
 
   Future<void> callUnanswered(String nextName) async {
     await _haptics.callUnanswered();

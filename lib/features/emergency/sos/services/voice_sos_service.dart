@@ -27,13 +27,16 @@ class VoiceSosService {
   int _localeIndex = 0;
   Timer? _restartTimer;
   Future<void> Function(VoiceSosCommand command)? _onCommand;
+  Future<bool> Function(String transcript)? _onTranscript;
   void Function(String status)? _onStatus;
 
   Future<void> start({
     required Future<void> Function(VoiceSosCommand command) onCommand,
     required void Function(String status) onStatus,
+    Future<bool> Function(String transcript)? onTranscript,
   }) async {
     _onCommand = onCommand;
+    _onTranscript = onTranscript;
     _onStatus = onStatus;
     if (_running) return;
     if (!await _permissionService.requestMicrophonePermission()) {
@@ -80,7 +83,15 @@ class VoiceSosService {
 
   void _onResult(SpeechRecognitionResult result) {
     if (!result.finalResult || !_running) return;
-    final command = _matchCommand(result.recognizedWords);
+    unawaited(_handleTranscript(result.recognizedWords));
+  }
+
+  Future<void> _handleTranscript(String transcript) async {
+    final transcriptHandler = _onTranscript;
+    if (transcriptHandler != null && await transcriptHandler(transcript)) {
+      return;
+    }
+    final command = _matchCommand(transcript);
     if (command == null) {
       _onStatus?.call('Command not recognised. Listening again.');
       return;

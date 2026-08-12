@@ -86,16 +86,6 @@ class SosController extends ChangeNotifier {
   }) => _send(contacts: [contact], includeLocation: includeLocation);
 
   Future<void> callNumber(String phoneNumber) async {
-    if (!await _permissionService.isPhonePermissionGranted()) {
-      _set(
-        _state.copyWith(
-          status: SosStatus.error,
-          message: 'Phone permission is needed to place calls.',
-        ),
-      );
-      return;
-    }
-
     final contact = _contactFor(phoneNumber);
     if (Platform.isAndroid && contact != null && !contact.isDefault) {
       await _startPrimaryCallSequence(contact);
@@ -112,6 +102,9 @@ class SosController extends ChangeNotifier {
     final telUri = Uri(scheme: 'tel', path: phoneNumber);
     _callFallbackLog('dial attempted: $telUri');
     try {
+      if (contactName != null) {
+        await _feedback.callStarting(contactName);
+      }
       final canLaunch = await canLaunchUrl(telUri);
       _callFallbackLog('canLaunchUrl: $canLaunch');
       if (!canLaunch) {
@@ -127,12 +120,11 @@ class SosController extends ChangeNotifier {
       if (!opened) {
         await _reportDialFailure(contactName ?? phoneNumber);
       } else if (contactName != null) {
-        await _updateWithFeedback(
+        _set(
           _state.copyWith(
             status: SosStatus.success,
-            message: 'Calling $contactName now.',
+            message: 'Calling $contactName.',
           ),
-          () => _feedback.callPlaced(contactName),
         );
       }
       return opened;
@@ -144,10 +136,10 @@ class SosController extends ChangeNotifier {
   }
 
   Future<void> _reportDialFailure(String contactName) async {
-    final message = "Couldn't open the dialer for $contactName.";
+    final message = "Couldn't call $contactName.";
     await _updateWithFeedback(
       _state.copyWith(status: SosStatus.error, message: message),
-      () => _feedback.failure(message),
+      () => _feedback.callFailed(contactName),
     );
   }
 

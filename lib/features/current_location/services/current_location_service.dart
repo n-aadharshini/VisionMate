@@ -4,6 +4,8 @@ import 'package:permission_handler/permission_handler.dart';
 import '../models/location_model.dart';
 
 class CurrentLocationService {
+  static CurrentLocation? _lastSuccessfulLocation;
+
   Future<CurrentLocation> fetch() async {
     if (!await Geolocator.isLocationServiceEnabled()) {
       await Geolocator.openLocationSettings();
@@ -20,17 +22,38 @@ class CurrentLocationService {
       final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
       ).timeout(const Duration(seconds: 15));
-      return CurrentLocation(
+      return _remember(
+        CurrentLocation(
         latitude: position.latitude,
         longitude: position.longitude,
         accuracyMeters: position.accuracy,
         updatedAt: DateTime.now(),
+        ),
       );
     } on CurrentLocationException {
       rethrow;
     } catch (_) {
+      final cached = _lastSuccessfulLocation;
+      if (cached != null) return cached;
+
+      final lastKnown = await Geolocator.getLastKnownPosition();
+      if (lastKnown != null) {
+        return _remember(
+          CurrentLocation(
+            latitude: lastKnown.latitude,
+            longitude: lastKnown.longitude,
+            accuracyMeters: lastKnown.accuracy,
+            updatedAt: DateTime.now(),
+          ),
+        );
+      }
       throw const CurrentLocationException('Unable to determine your current location. Please enable GPS.');
     }
+  }
+
+  CurrentLocation _remember(CurrentLocation location) {
+    _lastSuccessfulLocation = location;
+    return location;
   }
 }
 

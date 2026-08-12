@@ -149,10 +149,19 @@ class SosRepositoryImpl implements SosRepository {
     try {
       final current = await _currentLocationService
           .fetch()
-          .timeout(const Duration(seconds: 8));
-      final address = await _currentGeocodingService
-          .addressFor(current)
-          .timeout(const Duration(seconds: 8));
+          .timeout(const Duration(seconds: 20));
+
+      // A readable address is helpful in the SMS, but it must never prevent
+      // an available GPS coordinate and Maps link from being sent.
+      String? address;
+      try {
+        address = await _currentGeocodingService
+            .addressFor(current)
+            .timeout(const Duration(seconds: 8));
+      } catch (error) {
+        debugPrint('[SOS] Readable address unavailable: $error');
+      }
+
       return SosLocation(
         latitude: current.latitude,
         longitude: current.longitude,

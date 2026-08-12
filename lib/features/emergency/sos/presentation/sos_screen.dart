@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../services/voice_sos_service.dart';
+import '../services/voice_intent_matcher.dart';
 import '../widgets/emergency_contact_tile.dart';
 import '../widgets/sos_button.dart';
 import 'manage_contacts_controller.dart';
@@ -80,6 +81,18 @@ class _SosScreenState extends State<SosScreen> {
           }
         },
         onStatus: (_) {},
+        onTranscript: (transcript) async {
+          final intent = VoiceIntentMatcher().match(
+            transcript,
+            controller.state.contacts,
+          );
+          if (intent.type != VoiceIntentType.callContact ||
+              intent.contact == null) {
+            return false;
+          }
+          await controller.callNumber(intent.contact!.phoneNumber);
+          return true;
+        },
       );
       if (widget.voiceAction == 'send_sos') {
         await controller.triggerManualSos();
